@@ -4,10 +4,23 @@ import pandas as pd
 
 class MarketTrendAgent:
     def __init__(self, timeframe, model="gpt-4"):
-        self.timeframe = timeframe  # '30d', '15d', or '3d'
+        # Map timeframes to valid yfinance periods
+        self.timeframe_mapping = {
+            '30d': '1mo',
+            '15d': '15d',
+            '3d': '5d'
+        }
+        self.timeframe = self.timeframe_mapping.get(timeframe, '1mo')
         self.chat_model = ChatOpenAI(model=model)
 
     def analyze_trend(self, market_data):
+        if market_data.empty:
+            return {
+                'timeframe': self.timeframe,
+                'analysis': f"No market data available for the specified timeframe: {self.timeframe}",
+                'timestamp': pd.Timestamp.now()
+            }
+
         system_prompt = self._get_system_prompt()
         market_context = self._prepare_market_context(market_data)
 
@@ -38,6 +51,9 @@ class MarketTrendAgent:
         """
 
     def _prepare_market_context(self, market_data):
+        if market_data.empty:
+            return "No market data available for analysis."
+
         return f"""
         Market Analysis for {self.timeframe}:
 
