@@ -16,33 +16,46 @@ class Database:
 
     def create_tables(self):
         with self.conn.cursor() as cur:
-            # Portfolio table
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS portfolio (
-                    id SERIAL PRIMARY KEY,
-                    symbol VARCHAR(10) NOT NULL,
-                    quantity INTEGER NOT NULL,
-                    entry_price FLOAT NOT NULL,
-                    entry_date TIMESTAMP NOT NULL,
-                    exit_price FLOAT,
-                    exit_date TIMESTAMP,
-                    strategy VARCHAR(50) NOT NULL
-                )
-            """)
-            
-            # Trading signals table
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS trading_signals (
-                    id SERIAL PRIMARY KEY,
-                    symbol VARCHAR(10) NOT NULL,
-                    signal_type VARCHAR(10) NOT NULL,
-                    strategy VARCHAR(50) NOT NULL,
-                    confidence FLOAT NOT NULL,
-                    timestamp TIMESTAMP NOT NULL
-                )
-            """)
-            
-            self.conn.commit()
+            try:
+                # Drop sequences if they exist to avoid conflicts
+                cur.execute("DROP SEQUENCE IF EXISTS portfolio_id_seq")
+                cur.execute("DROP SEQUENCE IF EXISTS trading_signals_id_seq")
+
+                # Portfolio table
+                cur.execute("""
+                    CREATE SEQUENCE IF NOT EXISTS portfolio_id_seq;
+
+                    CREATE TABLE IF NOT EXISTS portfolio (
+                        id INTEGER PRIMARY KEY DEFAULT nextval('portfolio_id_seq'),
+                        symbol VARCHAR(10) NOT NULL,
+                        quantity INTEGER NOT NULL,
+                        entry_price FLOAT NOT NULL,
+                        entry_date TIMESTAMP NOT NULL,
+                        exit_price FLOAT,
+                        exit_date TIMESTAMP,
+                        strategy VARCHAR(50) NOT NULL
+                    )
+                """)
+
+                # Trading signals table
+                cur.execute("""
+                    CREATE SEQUENCE IF NOT EXISTS trading_signals_id_seq;
+
+                    CREATE TABLE IF NOT EXISTS trading_signals (
+                        id INTEGER PRIMARY KEY DEFAULT nextval('trading_signals_id_seq'),
+                        symbol VARCHAR(10) NOT NULL,
+                        signal_type VARCHAR(10) NOT NULL,
+                        strategy VARCHAR(50) NOT NULL,
+                        confidence FLOAT NOT NULL,
+                        timestamp TIMESTAMP NOT NULL
+                    )
+                """)
+
+                self.conn.commit()
+            except Exception as e:
+                self.conn.rollback()
+                print(f"Error creating tables: {str(e)}")
+                raise
 
     def add_position(self, symbol, quantity, entry_price, strategy):
         with self.conn.cursor() as cur:
