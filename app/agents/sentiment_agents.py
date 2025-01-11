@@ -42,7 +42,7 @@ class SentimentAgent:
             search_depth="advanced",
             include_domains=["reuters.com", "bloomberg.com", "seekingalpha.com", "fool.com"]
         )
-        return search_results
+        return search_results.get('results', [])
 
     def _generate_mock_sentiment(self, symbol):
         return {
@@ -75,10 +75,9 @@ class SentimentAgent:
             return f"No news data available for the past {self.timeframe}."
 
         news_summary = "\n".join([
-            f"Title: {article['title']}\n"
-            f"Source: {article['source']}\n"
-            f"Date: {article['date']}\n"
-            f"Summary: {article['snippet']}\n"
+            f"Title: {article.get('title', 'No title')}\n"
+            f"Source: {article.get('domain', 'Unknown source')}\n"
+            f"Content: {article.get('content', 'No content available')}\n"
             for article in news_data
         ])
 
