@@ -17,27 +17,15 @@ class Database:
     def create_tables(self):
         with self.conn.cursor() as cur:
             try:
-                # Drop tables first
-                cur.execute("""
-                    DROP TABLE IF EXISTS portfolio CASCADE;
-                    DROP TABLE IF EXISTS trading_signals CASCADE;
-                """)
-
-                # Now safe to drop sequences
-                cur.execute("""
-                    DROP SEQUENCE IF EXISTS portfolio_id_seq CASCADE;
-                    DROP SEQUENCE IF EXISTS trading_signals_id_seq CASCADE;
-                """)
-
                 # Create sequences
                 cur.execute("""
-                    CREATE SEQUENCE portfolio_id_seq;
-                    CREATE SEQUENCE trading_signals_id_seq;
+                    CREATE SEQUENCE IF NOT EXISTS portfolio_id_seq;
+                    CREATE SEQUENCE IF NOT EXISTS trading_signals_id_seq;
                 """)
 
                 # Create tables using the sequences
                 cur.execute("""
-                    CREATE TABLE portfolio (
+                    CREATE TABLE IF NOT EXISTS portfolio (
                         id INTEGER PRIMARY KEY DEFAULT nextval('portfolio_id_seq'),
                         symbol VARCHAR(10) NOT NULL,
                         quantity INTEGER NOT NULL,
@@ -50,13 +38,25 @@ class Database:
                 """)
 
                 cur.execute("""
-                    CREATE TABLE trading_signals (
+                    CREATE TABLE IF NOT EXISTS trading_signals (
                         id INTEGER PRIMARY KEY DEFAULT nextval('trading_signals_id_seq'),
                         symbol VARCHAR(10) NOT NULL,
                         signal_type VARCHAR(10) NOT NULL,
                         strategy VARCHAR(50) NOT NULL,
                         confidence FLOAT NOT NULL,
                         timestamp TIMESTAMP NOT NULL
+                    )
+                """)
+
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS screened_stocks (
+                        id SERIAL PRIMARY KEY,
+                        symbol VARCHAR(10) NOT NULL,
+                        company_name VARCHAR(100),
+                        current_price DECIMAL(10, 2) NOT NULL,
+                        average_volume BIGINT NOT NULL,
+                        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(symbol)
                     )
                 """)
 
@@ -98,4 +98,35 @@ class Database:
                 (symbol, signal_type, strategy, confidence, timestamp)
                 VALUES (%s, %s, %s, %s, %s)
                 """, (symbol, signal_type, strategy, confidence, datetime.now()))
+            self.conn.commit()
+
+    def upsert_screened_stock(self, symbol, company_name, current_price, average_volume):
+        with self.conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO screened_stocks 
+                (symbol, company_name, current_price, average_volume, last_updated)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (symbol) 
+                DO UPDATE SET 
+                    company_name = EXCLUDED.company_name,
+                    current_price = EXCLUDED.current_price,
+                    average_volume = EXCLUDED.average_volume,
+                    last_updated = EXCLUDED.last_updated
+                """, (symbol, company_name, current_price, average_volume, datetime.now()))
+            self.conn.commit()
+
+    def get_screened_stocks(self):
+        with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT * FROM screened_stocks 
+                ORDER BY symbol ASC
+                """)
+            return cur.fetchall()
+
+    def clear_old_screened_stocks(self, hours=24):
+        with self.conn.cursor() as cur:
+            cur.execute("""
+                DELETE FROM screened_stocks 
+                WHERE last_updated < NOW() - INTERVAL '%s hours'
+                """, (hours,))
             self.conn.commit()
