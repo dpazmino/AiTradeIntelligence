@@ -1,15 +1,22 @@
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 import pandas as pd
-from tavily import TavilyClient
+import os
+from datetime import datetime, timedelta
 
 class SentimentAgent:
-    def __init__(self, timeframe, tavily_api_key, model="gpt-4"):
+    def __init__(self, timeframe, model="gpt-4"):
         self.timeframe = timeframe  # '30d', '15d', or '3d'
-        self.tavily_client = TavilyClient(api_key=tavily_api_key)
         self.chat_model = ChatOpenAI(model=model)
+        self.tavily_api_key = os.getenv('TAVILY_API_KEY')
+        if self.tavily_api_key:
+            from tavily import TavilyClient
+            self.tavily_client = TavilyClient(api_key=self.tavily_api_key)
 
     def analyze_sentiment(self, symbol):
+        if not self.tavily_api_key:
+            return self._generate_mock_sentiment(symbol)
+
         # Fetch news articles using Tavily
         news_data = self._fetch_news(symbol)
 
@@ -26,6 +33,9 @@ class SentimentAgent:
         return self._parse_response(response.content, news_data)
 
     def _fetch_news(self, symbol):
+        if not self.tavily_api_key:
+            return []
+
         query = f"{symbol} stock news last {self.timeframe}"
         search_results = self.tavily_client.search(
             query=query,
@@ -33,6 +43,15 @@ class SentimentAgent:
             include_domains=["reuters.com", "bloomberg.com", "seekingalpha.com", "fool.com"]
         )
         return search_results
+
+    def _generate_mock_sentiment(self, symbol):
+        return {
+            'timeframe': self.timeframe,
+            'analysis': f"Sentiment analysis unavailable for {symbol} - Tavily API key not configured. "
+                       "Please configure TAVILY_API_KEY to enable sentiment analysis.",
+            'news_count': 0,
+            'timestamp': pd.Timestamp.now()
+        }
 
     def _get_system_prompt(self):
         return f"""
@@ -52,6 +71,9 @@ class SentimentAgent:
         """
 
     def _prepare_news_context(self, news_data):
+        if not news_data:
+            return f"No news data available for the past {self.timeframe}."
+
         news_summary = "\n".join([
             f"Title: {article['title']}\n"
             f"Source: {article['source']}\n"
