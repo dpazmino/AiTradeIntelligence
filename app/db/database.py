@@ -17,15 +17,27 @@ class Database:
     def create_tables(self):
         with self.conn.cursor() as cur:
             try:
-                # Drop sequences if they exist to avoid conflicts
-                cur.execute("DROP SEQUENCE IF EXISTS portfolio_id_seq")
-                cur.execute("DROP SEQUENCE IF EXISTS trading_signals_id_seq")
-
-                # Portfolio table
+                # Drop tables first
                 cur.execute("""
-                    CREATE SEQUENCE IF NOT EXISTS portfolio_id_seq;
+                    DROP TABLE IF EXISTS portfolio CASCADE;
+                    DROP TABLE IF EXISTS trading_signals CASCADE;
+                """)
 
-                    CREATE TABLE IF NOT EXISTS portfolio (
+                # Now safe to drop sequences
+                cur.execute("""
+                    DROP SEQUENCE IF EXISTS portfolio_id_seq CASCADE;
+                    DROP SEQUENCE IF EXISTS trading_signals_id_seq CASCADE;
+                """)
+
+                # Create sequences
+                cur.execute("""
+                    CREATE SEQUENCE portfolio_id_seq;
+                    CREATE SEQUENCE trading_signals_id_seq;
+                """)
+
+                # Create tables using the sequences
+                cur.execute("""
+                    CREATE TABLE portfolio (
                         id INTEGER PRIMARY KEY DEFAULT nextval('portfolio_id_seq'),
                         symbol VARCHAR(10) NOT NULL,
                         quantity INTEGER NOT NULL,
@@ -37,11 +49,8 @@ class Database:
                     )
                 """)
 
-                # Trading signals table
                 cur.execute("""
-                    CREATE SEQUENCE IF NOT EXISTS trading_signals_id_seq;
-
-                    CREATE TABLE IF NOT EXISTS trading_signals (
+                    CREATE TABLE trading_signals (
                         id INTEGER PRIMARY KEY DEFAULT nextval('trading_signals_id_seq'),
                         symbol VARCHAR(10) NOT NULL,
                         signal_type VARCHAR(10) NOT NULL,
