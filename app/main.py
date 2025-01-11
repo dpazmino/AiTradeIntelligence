@@ -8,6 +8,7 @@ from data.market_data import MarketData
 from strategies.macd_strategy import MACDStrategy
 from strategies.fibonacci_strategy import FibonacciStrategy
 from strategies.bollinger_strategy import BollingerStrategy
+from strategies.fractal_strategy import FractalStrategy
 from agents.trading_agents import TradingAgent
 from agents.market_trend_agents import MarketTrendAgent
 from agents.sentiment_agents import SentimentAgent
@@ -21,7 +22,8 @@ market_data = MarketData()
 strategies = {
     'MACD': MACDStrategy(),
     'Fibonacci': FibonacciStrategy(),
-    'Bollinger': BollingerStrategy()
+    'Bollinger': BollingerStrategy(),
+    'Fractal': FractalStrategy()
 }
 
 trading_agents = {
