@@ -116,6 +116,9 @@ def analyze_watchlist_stock(symbol, data):
     for name, agent in trading_agents.items():
         progress_placeholder.write(f"  ↳ {name} Strategy Agent analyzing {symbol}...")
         signals[name] = agent.analyze(data)
+        # Save each agent's decision
+        action = 'BUY' if signals[name].get('buy', False) else 'SELL' if signals[name].get('sell', False) else 'HOLD'
+        db.save_trading_decision(symbol, action, signals[name].get('confidence', 0.0), f"strategy_{name.lower()}")
 
     # Show market trend analysis progress
     progress_placeholder.write("📈 Market Trend Analysis:")
@@ -123,6 +126,9 @@ def analyze_watchlist_stock(symbol, data):
     for timeframe, agent in market_trend_agents.items():
         progress_placeholder.write(f"  ↳ {timeframe} Trend Agent analyzing market conditions...")
         trend_analysis[timeframe] = agent.analyze_trend(data)
+        # Save trend analysis
+        db.save_trading_decision(symbol, trend_analysis[timeframe]['analysis'], 
+                               0.8, f"trend_{timeframe}")
 
     # Show sentiment analysis progress
     progress_placeholder.write("📰 Sentiment Analysis:")
@@ -130,27 +136,22 @@ def analyze_watchlist_stock(symbol, data):
     for timeframe, agent in sentiment_agents.items():
         progress_placeholder.write(f"  ↳ {timeframe} Sentiment Agent analyzing news and social media...")
         sentiment_analysis[timeframe] = agent.analyze_sentiment(symbol)
+        # Save sentiment analysis
+        db.save_trading_decision(symbol, sentiment_analysis[timeframe]['analysis'], 
+                               0.7, f"sentiment_{timeframe}")
 
     # Show supervisor decision making
     progress_placeholder.write("🎯 Supervisor Agent making final decision...")
     decision = supervisor.make_decision(signals, trend_analysis, sentiment_analysis)
 
+    # Save supervisor decision
+    db.save_trading_decision(symbol, decision['decision'], 
+                           0.9, 'supervisor')
+
     # Clear the progress display
     progress_placeholder.empty()
 
-    # Extract decision and confidence
-    decision_text = decision['decision']
-    confidence = 0.0
-
-    if 'confidence' in decision_text.lower():
-        try:
-            confidence_str = decision_text.lower().split('confidence')[1].split('\n')[0]
-            confidence = float(''.join(filter(str.isdigit, confidence_str))) / 100
-        except:
-            confidence = 0.5  # Default confidence if parsing fails
-
-    return decision_text, confidence
-
+    return decision['decision'], 0.9
 
 
 # Streamlit UI
@@ -361,11 +362,8 @@ with tab2:
                     # Calculate technical indicators
                     stock_data = market_data.calculate_technical_indicators(stock_data)
 
-                    # Get agent decisions
-                    agent_decisions = get_agent_decisions(stock['symbol'], stock_data)
-
-                    # Get latest trading decisions
-                    decisions = db.get_latest_trading_decisions(stock['symbol'], limit=2)
+                    # Get all stored agent decisions
+                    agent_decisions = db.get_all_agent_decisions(stock['symbol'])
 
                     # Display stock info in columns
                     col1, col2, col3 = st.columns([2, 2, 3])
@@ -383,26 +381,23 @@ with tab2:
 
                     with col3:
                         st.write("**Agent Decisions:**")
-                        for strategy, decision in agent_decisions.items():
-                            action = decision['action']
-                            confidence = decision['confidence']
-                            st.write(f"{strategy}: {action} (conf: {confidence:.2f})")
+                        for decision in agent_decisions:
+                            if decision['agent_name'].startswith('strategy_'):
+                                strategy_name = decision['agent_name'].replace('strategy_', '').upper()
+                                action = extract_trading_action(decision['decision'])
+                                st.write(f"{strategy_name}: {action} (conf: {decision['confidence']:.2f})")
 
-                            # Show entry/exit points for buy signals
-                            if action == 'BUY':
-                                entry, exit = calculate_trade_points(stock_data)
-                                st.write(f"  ↳ Entry: ${entry} | Exit: ${exit}")
+                                # Show entry/exit points for buy signals
+                                if action == 'BUY':
+                                    entry, exit = calculate_trade_points(stock_data)
+                                    st.write(f"  ↳ Entry: ${entry} | Exit: ${exit}")
 
-                        st.write("**Supervisor Decisions:**")
-                        if decisions:
-                            current = decisions[0]
+                        st.write("**Supervisor Decision:**")
+                        supervisor_decisions = [d for d in agent_decisions if d['agent_name'] == 'supervisor']
+                        if supervisor_decisions:
+                            current = supervisor_decisions[0]
                             action = extract_trading_action(current['decision'])
-                            st.write(f"Current ({current['created_at'].strftime('%Y-%m-%d')}): {action}")
-
-                            if len(decisions) > 1:
-                                previous = decisions[1]
-                                prev_action = extract_trading_action(previous['decision'])
-                                st.write(f"Previous ({previous['created_at'].strftime('%Y-%m-%d')}): {prev_action}")
+                            st.write(f"({current['created_at'].strftime('%Y-%m-%d')}): {action}")
 
                     if st.button("Remove", key=f"remove_{stock['symbol']}"):
                         db.remove_from_watchlist(stock['symbol'])

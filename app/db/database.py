@@ -78,6 +78,7 @@ class Database:
                         symbol VARCHAR(10) NOT NULL,
                         decision TEXT NOT NULL,
                         confidence FLOAT NOT NULL,
+                        agent_name VARCHAR(50) NOT NULL DEFAULT 'supervisor',
                         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                     );
                     CREATE UNIQUE INDEX IF NOT EXISTS trading_decisions_daily_idx 
@@ -182,23 +183,45 @@ class Database:
                 """)
             return cur.fetchall()
 
-    def save_trading_decision(self, symbol: str, decision: str, confidence: float):
+    def save_trading_decision(self, symbol: str, decision: str, confidence: float, agent_name: str = 'supervisor'):
         """Save a new trading decision for a stock"""
         with self.conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO trading_decisions (symbol, decision, confidence)
-                VALUES (%s, %s, %s)
-                """, (symbol, decision, confidence))
+                INSERT INTO trading_decisions (symbol, decision, confidence, agent_name)
+                VALUES (%s, %s, %s, %s)
+                """, (symbol, decision, confidence, agent_name))
             self.conn.commit()
 
     def get_latest_trading_decisions(self, symbol: str, limit: int = 2):
         """Get the latest trading decisions for a stock"""
         with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
-                SELECT decision, confidence, created_at
+                SELECT decision, confidence, agent_name, created_at
                 FROM trading_decisions
                 WHERE symbol = %s
                 ORDER BY created_at DESC
                 LIMIT %s
                 """, (symbol, limit))
+            return cur.fetchall()
+
+    def get_all_agent_decisions(self, symbol: str):
+        """Get the latest decision from each agent for a stock"""
+        with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                WITH RankedDecisions AS (
+                    SELECT 
+                        symbol,
+                        decision,
+                        confidence,
+                        agent_name,
+                        created_at,
+                        ROW_NUMBER() OVER (PARTITION BY agent_name ORDER BY created_at DESC) as rn
+                    FROM trading_decisions
+                    WHERE symbol = %s
+                )
+                SELECT symbol, decision, confidence, agent_name, created_at
+                FROM RankedDecisions
+                WHERE rn = 1
+                ORDER BY agent_name;
+                """, (symbol,))
             return cur.fetchall()
