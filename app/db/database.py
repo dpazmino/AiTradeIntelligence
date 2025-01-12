@@ -16,14 +16,19 @@ class Database:
         retry_count = 0
         while retry_count < self.max_retries:
             try:
-                # Connect using individual connection parameters for local PostgreSQL
-                self.conn = psycopg2.connect(
-                    dbname=os.environ.get('PGDATABASE', 'postgres'),
-                    user=os.environ.get('PGUSER', 'postgres'),
-                    password=os.environ.get('PGPASSWORD', ''),
-                    host='localhost',
-                    port=os.environ.get('PGPORT', '5432')
-                )
+                # Use DATABASE_URL for connection
+                database_url = os.environ.get('DATABASE_URL')
+                if database_url:
+                    self.conn = psycopg2.connect(database_url)
+                else:
+                    print("No DATABASE_URL found, falling back to default configuration")
+                    self.conn = psycopg2.connect(
+                        dbname='postgres',
+                        user='postgres',
+                        password='',
+                        host='0.0.0.0',
+                        port='5432'
+                    )
 
                 self.conn.autocommit = False
                 print("Successfully connected to PostgreSQL database!")
@@ -32,10 +37,7 @@ class Database:
                 retry_count += 1
                 print(f"Database connection error: {str(e)}")
                 print("Current connection details (without password):")
-                print(f"Database: {os.environ.get('PGDATABASE', 'Not set')}")
-                print(f"User: {os.environ.get('PGUSER', 'Not set')}")
-                print(f"Host: localhost")
-                print(f"Port: {os.environ.get('PGPORT', 'Not set')}")
+                print(f"Database URL: {os.environ.get('DATABASE_URL', 'Not set')}")
 
                 if retry_count == self.max_retries:
                     raise Exception(f"Failed to connect to database after {self.max_retries} attempts: {str(e)}")
