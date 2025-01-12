@@ -84,7 +84,21 @@ def analyze_watchlist_stock(symbol, data):
     }
 
     decision = supervisor.make_decision(signals, trend_analysis, sentiment_analysis)
-    return decision
+
+    # Extract the core decision and confidence from the supervisor's response
+    # The confidence is typically mentioned in the decision text
+    decision_text = decision['decision']
+    confidence = 0.0
+
+    # Look for confidence value in the decision text
+    if 'confidence' in decision_text.lower():
+        try:
+            confidence_str = decision_text.lower().split('confidence')[1].split('\n')[0]
+            confidence = float(''.join(filter(str.isdigit, confidence_str))) / 100
+        except:
+            confidence = 0.5  # Default confidence if parsing fails
+
+    return decision_text, confidence
 
 # Streamlit UI
 st.title("AI Hedge Fund Dashboard")
@@ -218,6 +232,21 @@ with tab1:
 with tab2:
     st.subheader("Watchlist")
 
+    # Add update recommendations button
+    if st.button("Update All Trading Recommendations"):
+        with st.spinner("Updating trading recommendations for all watchlist stocks..."):
+            watchlist = db.get_watchlist()
+            for stock in watchlist:
+                try:
+                    stock_data = market_data.get_stock_data(stock['symbol'], period='5d')
+                    if not stock_data.empty and len(stock_data) >= 2:
+                        stock_data = market_data.calculate_technical_indicators(stock_data)
+                        decision_text, confidence = analyze_watchlist_stock(stock['symbol'], stock_data)
+                        db.save_trading_decision(stock['symbol'], decision_text, confidence)
+                except Exception as e:
+                    st.error(f"Error updating recommendations for {stock['symbol']}: {str(e)}")
+        st.success("Trading recommendations updated!")
+
     # Add stock to watchlist
     new_symbol = st.text_input("Enter Stock Symbol").upper()
     notes = st.text_area("Notes (optional)", height=100)
@@ -244,7 +273,7 @@ with tab2:
         except Exception as e:
             st.error(f"Error adding {new_symbol} to watchlist: {str(e)}")
 
-    # Display watchlist with current data
+    # Display watchlist with current data and trading decisions
     watchlist = db.get_watchlist()
     if watchlist:
         st.write("Your Watchlist:")
@@ -259,12 +288,8 @@ with tab2:
                     price_change_pct = (price_change / yesterday_price) * 100
                     volume = stock_data['Volume'].iloc[-1]
 
-                    # Add technical indicators for analysis
-                    stock_data = market_data.calculate_technical_indicators(stock_data)
-
-                    # Get AI trading decision
-                    with st.spinner(f"Analyzing {stock['symbol']}..."):
-                        decision = analyze_watchlist_stock(stock['symbol'], stock_data)
+                    # Get latest trading decisions
+                    decisions = db.get_latest_trading_decisions(stock['symbol'], limit=2)
 
                     # Display stock info in columns
                     col1, col2, col3, col4, col5 = st.columns([2, 3, 2, 3, 1])
@@ -280,8 +305,18 @@ with tab2:
                     with col3:
                         st.write(f"Volume: {volume:,.0f}")
                     with col4:
-                        st.write("**AI Decision:**")
-                        st.write(decision['decision'])
+                        st.write("**Trading Decisions:**")
+                        if decisions:
+                            current = decisions[0]
+                            st.write(f"Current ({current['created_at'].strftime('%Y-%m-%d')}):")
+                            st.write(current['decision'])
+
+                            if len(decisions) > 1:
+                                previous = decisions[1]
+                                st.write(f"Previous ({previous['created_at'].strftime('%Y-%m-%d')}):")
+                                st.write(previous['decision'])
+                        else:
+                            st.write("No decisions yet")
                     with col5:
                         if st.button("Remove", key=f"remove_{stock['symbol']}"):
                             db.remove_from_watchlist(stock['symbol'])

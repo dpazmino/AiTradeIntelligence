@@ -17,14 +17,15 @@ class Database:
     def create_tables(self):
         with self.conn.cursor() as cur:
             try:
-                # Create sequences
+                # Keep existing sequences
                 cur.execute("""
                     CREATE SEQUENCE IF NOT EXISTS portfolio_id_seq;
                     CREATE SEQUENCE IF NOT EXISTS trading_signals_id_seq;
                     CREATE SEQUENCE IF NOT EXISTS watchlist_stocks_id_seq;
+                    CREATE SEQUENCE IF NOT EXISTS trading_decisions_id_seq;
                 """)
 
-                # Create tables using the sequences
+                # Keep existing tables
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS portfolio (
                         id INTEGER PRIMARY KEY DEFAULT nextval('portfolio_id_seq'),
@@ -67,6 +68,18 @@ class Database:
                         symbol VARCHAR(10) NOT NULL UNIQUE,
                         notes TEXT,
                         added_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+
+                # Add new table for trading decisions
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS trading_decisions (
+                        id INTEGER PRIMARY KEY DEFAULT nextval('trading_decisions_id_seq'),
+                        symbol VARCHAR(10) NOT NULL,
+                        decision TEXT NOT NULL,
+                        confidence FLOAT NOT NULL,
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(symbol, DATE(created_at))
                     )
                 """)
 
@@ -166,4 +179,30 @@ class Database:
                 SELECT * FROM watchlist_stocks 
                 ORDER BY added_date DESC
                 """)
+            return cur.fetchall()
+
+    def save_trading_decision(self, symbol: str, decision: str, confidence: float):
+        """Save a new trading decision for a stock"""
+        with self.conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO trading_decisions (symbol, decision, confidence)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (symbol, DATE(created_at)) 
+                DO UPDATE SET 
+                    decision = EXCLUDED.decision,
+                    confidence = EXCLUDED.confidence,
+                    created_at = CURRENT_TIMESTAMP
+                """, (symbol, decision, confidence))
+            self.conn.commit()
+
+    def get_latest_trading_decisions(self, symbol: str, limit: int = 2):
+        """Get the latest trading decisions for a stock"""
+        with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT decision, confidence, created_at
+                FROM trading_decisions
+                WHERE symbol = %s
+                ORDER BY created_at DESC
+                LIMIT %s
+                """, (symbol, limit))
             return cur.fetchall()
