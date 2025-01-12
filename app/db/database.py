@@ -16,21 +16,33 @@ class Database:
         retry_count = 0
         while retry_count < self.max_retries:
             try:
-                # Use DATABASE_URL instead of individual parameters
+                # Try to connect using DATABASE_URL first
                 database_url = os.environ.get('DATABASE_URL')
-                if not database_url:
-                    raise Exception("DATABASE_URL environment variable is not set")
+                if database_url:
+                    print(f"Attempting connection using DATABASE_URL (attempt {retry_count + 1}/{self.max_retries})...")
+                    self.conn = psycopg2.connect(database_url)
+                else:
+                    # Fallback to individual parameters
+                    print(f"Attempting connection using individual parameters (attempt {retry_count + 1}/{self.max_retries})...")
+                    self.conn = psycopg2.connect(
+                        dbname=os.environ.get('PGDATABASE'),
+                        user=os.environ.get('PGUSER'),
+                        password=os.environ.get('PGPASSWORD'),
+                        host=os.environ.get('PGHOST'),
+                        port=os.environ.get('PGPORT')
+                    )
 
-                print(f"Attempting database connection (attempt {retry_count + 1}/{self.max_retries})...")
-                self.conn = psycopg2.connect(database_url)
-                self.conn.autocommit = False  # Explicit transaction management
-                print("Database connection established successfully")
-                break
+                self.conn.autocommit = False
+                print("Database connection established successfully!")
+                return
+
             except Exception as e:
+                print(f"Connection error details: {str(e)}")
                 retry_count += 1
                 if retry_count == self.max_retries:
+                    print("All connection attempts failed!")
                     raise Exception(f"Failed to connect to database after {self.max_retries} attempts: {str(e)}")
-                print(f"Database connection attempt {retry_count} failed, retrying in 5 seconds... Error: {str(e)}")
+                print(f"Retrying in 5 seconds... (Attempt {retry_count + 1}/{self.max_retries})")
                 time.sleep(5)
 
     def ensure_connection(self):
@@ -39,8 +51,9 @@ class Database:
             # Try to execute a simple query to test connection
             with self.conn.cursor() as cur:
                 cur.execute("SELECT 1")
-        except (psycopg2.OperationalError, psycopg2.InterfaceError, AttributeError):
-            print("Lost database connection, attempting to reconnect...")
+        except Exception as e:
+            print(f"Connection check failed: {str(e)}")
+            print("Attempting to reconnect...")
             self.connect_with_retry()
 
     def create_tables(self):
