@@ -3,6 +3,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from datetime import datetime
 import time
+import urllib.parse
 
 class Database:
     def __init__(self, max_retries=3):
@@ -16,16 +17,29 @@ class Database:
         retry_count = 0
         while retry_count < self.max_retries:
             try:
-                # Connect using the PostgreSQL environment variables provided by Replit
+                # Get DATABASE_URL from environment
+                database_url = os.environ.get('DATABASE_URL')
+                if not database_url:
+                    raise Exception("DATABASE_URL environment variable is not set")
+
+                # Parse the URL to get components
+                result = urllib.parse.urlparse(database_url)
+                username = result.username
+                password = result.password
+                database = result.path[1:]
+                hostname = result.hostname
+                port = result.port
+
+                # Connect using parsed components
                 self.conn = psycopg2.connect(
-                    dbname=os.environ.get('PGDATABASE'),
-                    user=os.environ.get('PGUSER'),
-                    password=os.environ.get('PGPASSWORD'),
-                    host='localhost',  # Use localhost for Replit's PostgreSQL
-                    port=os.environ.get('PGPORT', 5432)  # Default to 5432 if not specified
+                    dbname=database,
+                    user=username,
+                    password=password,
+                    host=hostname,
+                    port=port
                 )
                 self.conn.autocommit = False
-                print("Successfully connected to Replit PostgreSQL database!")
+                print("Successfully connected to PostgreSQL database!")
                 return
             except Exception as e:
                 retry_count += 1
