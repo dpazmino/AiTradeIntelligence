@@ -1,8 +1,8 @@
 import os
-import psycopg2
-from psycopg2.extras import RealDictCursor
-from datetime import datetime
+import mysql.connector
+from mysql.connector import Error
 import time
+from datetime import datetime
 
 class Database:
     def __init__(self, max_retries=3):
@@ -16,28 +16,22 @@ class Database:
         retry_count = 0
         while retry_count < self.max_retries:
             try:
-                # Use DATABASE_URL for connection
-                database_url = os.environ.get('DATABASE_URL')
-                if database_url:
-                    self.conn = psycopg2.connect(database_url)
-                else:
-                    print("No DATABASE_URL found, falling back to default configuration")
-                    self.conn = psycopg2.connect(
-                        dbname='postgres',
-                        user='postgres',
-                        password='',
-                        host='0.0.0.0',
-                        port='5432'
-                    )
+                self.conn = mysql.connector.connect(
+                    host='127.0.0.1',
+                    user='root',
+                    password='',
+                    database='ai_hedge_fund'
+                )
 
-                self.conn.autocommit = False
-                print("Successfully connected to PostgreSQL database!")
+                print("Successfully connected to MySQL database!")
                 return
-            except Exception as e:
+            except Error as e:
                 retry_count += 1
                 print(f"Database connection error: {str(e)}")
                 print("Current connection details (without password):")
-                print(f"Database URL: {os.environ.get('DATABASE_URL', 'Not set')}")
+                print(f"Host: 127.0.0.1")
+                print(f"Database: ai_hedge_fund")
+                print(f"User: root")
 
                 if retry_count == self.max_retries:
                     raise Exception(f"Failed to connect to database after {self.max_retries} attempts: {str(e)}")
@@ -47,90 +41,88 @@ class Database:
     def ensure_connection(self):
         """Ensure database connection is active"""
         try:
-            # Try to execute a simple query to test connection
-            with self.conn.cursor() as cur:
-                cur.execute("SELECT 1")
-        except Exception:
+            if self.conn and self.conn.is_connected():
+                return True
             print("Connection lost, attempting to reconnect...")
+            self.connect_with_retry()
+        except Error:
+            print("Connection verification failed, reconnecting...")
             self.connect_with_retry()
 
     def create_tables(self):
         """Create necessary database tables"""
         self.ensure_connection()
-        with self.conn.cursor() as cur:
-            try:
-                # Keep existing sequences
-                cur.execute("""
-                    CREATE SEQUENCE IF NOT EXISTS portfolio_id_seq;
-                    CREATE SEQUENCE IF NOT EXISTS trading_signals_id_seq;
-                    CREATE SEQUENCE IF NOT EXISTS watchlist_stocks_id_seq;
-                    CREATE SEQUENCE IF NOT EXISTS trading_decisions_id_seq;
-                """)
+        cursor = self.conn.cursor()
+        try:
+            # First, create the database if it doesn't exist
+            cursor.execute("CREATE DATABASE IF NOT EXISTS ai_hedge_fund")
+            cursor.execute("USE ai_hedge_fund")
 
-                # Create tables
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS portfolio (
-                        id INTEGER PRIMARY KEY DEFAULT nextval('portfolio_id_seq'),
-                        symbol VARCHAR(10) NOT NULL,
-                        quantity INTEGER NOT NULL,
-                        entry_price FLOAT NOT NULL,
-                        entry_date TIMESTAMP NOT NULL,
-                        exit_price FLOAT,
-                        exit_date TIMESTAMP,
-                        strategy VARCHAR(50) NOT NULL
-                    )
-                """)
+            # Create tables with auto-incrementing IDs
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS portfolio (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    symbol VARCHAR(10) NOT NULL,
+                    quantity INT NOT NULL,
+                    entry_price FLOAT NOT NULL,
+                    entry_date DATETIME NOT NULL,
+                    exit_price FLOAT,
+                    exit_date DATETIME,
+                    strategy VARCHAR(50) NOT NULL
+                )
+            """)
 
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS trading_signals (
-                        id INTEGER PRIMARY KEY DEFAULT nextval('trading_signals_id_seq'),
-                        symbol VARCHAR(10) NOT NULL,
-                        signal_type VARCHAR(10) NOT NULL,
-                        strategy VARCHAR(50) NOT NULL,
-                        confidence FLOAT NOT NULL,
-                        timestamp TIMESTAMP NOT NULL
-                    )
-                """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS trading_signals (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    symbol VARCHAR(10) NOT NULL,
+                    signal_type VARCHAR(10) NOT NULL,
+                    strategy VARCHAR(50) NOT NULL,
+                    confidence FLOAT NOT NULL,
+                    timestamp DATETIME NOT NULL
+                )
+            """)
 
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS screened_stocks (
-                        id SERIAL PRIMARY KEY,
-                        symbol VARCHAR(10) NOT NULL,
-                        company_name VARCHAR(100),
-                        current_price DECIMAL(10, 2) NOT NULL,
-                        average_volume BIGINT NOT NULL,
-                        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        UNIQUE(symbol)
-                    )
-                """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS screened_stocks (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    symbol VARCHAR(10) NOT NULL UNIQUE,
+                    company_name VARCHAR(100),
+                    current_price DECIMAL(10, 2) NOT NULL,
+                    average_volume BIGINT NOT NULL,
+                    last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
 
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS watchlist_stocks (
-                        id SERIAL PRIMARY KEY,
-                        symbol VARCHAR(10) NOT NULL UNIQUE,
-                        notes TEXT,
-                        added_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS watchlist_stocks (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    symbol VARCHAR(10) NOT NULL UNIQUE,
+                    notes TEXT,
+                    added_date DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
 
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS trading_decisions (
-                        id SERIAL PRIMARY KEY,
-                        symbol VARCHAR(10) NOT NULL,
-                        decision TEXT NOT NULL,
-                        confidence FLOAT NOT NULL,
-                        agent_name VARCHAR(50) NOT NULL DEFAULT 'supervisor',
-                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                        UNIQUE(symbol, agent_name, date(created_at))
-                    )
-                """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS trading_decisions (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    symbol VARCHAR(10) NOT NULL,
+                    decision TEXT NOT NULL,
+                    confidence FLOAT NOT NULL,
+                    agent_name VARCHAR(50) NOT NULL DEFAULT 'supervisor',
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE KEY unique_decision (symbol, agent_name, DATE(created_at))
+                )
+            """)
 
-                self.conn.commit()
-                print("Database tables created successfully")
-            except Exception as e:
-                self.conn.rollback()
-                print(f"Error creating tables: {str(e)}")
-                raise
+            self.conn.commit()
+            print("Database tables created successfully")
+        except Error as e:
+            self.conn.rollback()
+            print(f"Error creating tables: {str(e)}")
+            raise
+        finally:
+            cursor.close()
 
     def execute_with_retry(self, operation):
         """Execute database operation with retry logic"""
@@ -139,7 +131,7 @@ class Database:
             try:
                 self.ensure_connection()
                 return operation()
-            except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
+            except Error as e:
                 if attempt == max_attempts - 1:
                     raise
                 print(f"Database operation failed, retrying... ({attempt + 1}/{max_attempts})")
@@ -147,143 +139,179 @@ class Database:
 
     def add_position(self, symbol, quantity, entry_price, strategy):
         def operation():
-            with self.conn.cursor() as cur:
-                cur.execute("""
+            cursor = self.conn.cursor()
+            try:
+                cursor.execute("""
                     INSERT INTO portfolio (symbol, quantity, entry_price, entry_date, strategy)
                     VALUES (%s, %s, %s, %s, %s)
                     """, (symbol, quantity, entry_price, datetime.now(), strategy))
                 self.conn.commit()
+            finally:
+                cursor.close()
         self.execute_with_retry(operation)
 
     def close_position(self, position_id, exit_price):
         def operation():
-            with self.conn.cursor() as cur:
-                cur.execute("""
+            cursor = self.conn.cursor()
+            try:
+                cursor.execute("""
                     UPDATE portfolio 
                     SET exit_price = %s, exit_date = %s
                     WHERE id = %s
                     """, (exit_price, datetime.now(), position_id))
                 self.conn.commit()
+            finally:
+                cursor.close()
         self.execute_with_retry(operation)
 
     def get_open_positions(self):
         def operation():
-            with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("""
+            cursor = self.conn.cursor(dictionary=True)
+            try:
+                cursor.execute("""
                     SELECT * FROM portfolio 
                     WHERE exit_date IS NULL
                     """)
-                return cur.fetchall()
+                return cursor.fetchall()
+            finally:
+                cursor.close()
         return self.execute_with_retry(operation)
 
     def add_signal(self, symbol, signal_type, strategy, confidence):
         def operation():
-            with self.conn.cursor() as cur:
-                cur.execute("""
+            cursor = self.conn.cursor()
+            try:
+                cursor.execute("""
                     INSERT INTO trading_signals 
                     (symbol, signal_type, strategy, confidence, timestamp)
                     VALUES (%s, %s, %s, %s, %s)
                     """, (symbol, signal_type, strategy, confidence, datetime.now()))
                 self.conn.commit()
+            finally:
+                cursor.close()
         self.execute_with_retry(operation)
 
     def upsert_screened_stock(self, symbol, company_name, current_price, average_volume):
         def operation():
-            with self.conn.cursor() as cur:
-                cur.execute("""
+            cursor = self.conn.cursor()
+            try:
+                cursor.execute("""
                     INSERT INTO screened_stocks 
                     (symbol, company_name, current_price, average_volume, last_updated)
                     VALUES (%s, %s, %s, %s, %s)
-                    ON CONFLICT (symbol) 
-                    DO UPDATE SET 
-                        company_name = EXCLUDED.company_name,
-                        current_price = EXCLUDED.current_price,
-                        average_volume = EXCLUDED.average_volume,
-                        last_updated = EXCLUDED.last_updated
+                    ON DUPLICATE KEY UPDATE 
+                        company_name = VALUES(company_name),
+                        current_price = VALUES(current_price),
+                        average_volume = VALUES(average_volume),
+                        last_updated = VALUES(last_updated)
                     """, (symbol, company_name, current_price, average_volume, datetime.now()))
                 self.conn.commit()
+            finally:
+                cursor.close()
         self.execute_with_retry(operation)
 
     def get_screened_stocks(self):
         def operation():
-            with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("""
+            cursor = self.conn.cursor(dictionary=True)
+            try:
+                cursor.execute("""
                     SELECT * FROM screened_stocks 
                     ORDER BY symbol ASC
                     """)
-                return cur.fetchall()
+                return cursor.fetchall()
+            finally:
+                cursor.close()
         return self.execute_with_retry(operation)
 
     def clear_old_screened_stocks(self, hours=24):
         def operation():
-            with self.conn.cursor() as cur:
-                cur.execute("""
+            cursor = self.conn.cursor()
+            try:
+                cursor.execute("""
                     DELETE FROM screened_stocks 
-                    WHERE last_updated < NOW() - INTERVAL '%s hours'
+                    WHERE last_updated < DATE_SUB(NOW(), INTERVAL %s HOUR)
                     """, (hours,))
                 self.conn.commit()
+            finally:
+                cursor.close()
         self.execute_with_retry(operation)
 
     def add_to_watchlist(self, symbol, notes=None):
         def operation():
-            with self.conn.cursor() as cur:
-                cur.execute("""
+            cursor = self.conn.cursor()
+            try:
+                cursor.execute("""
                     INSERT INTO watchlist_stocks (symbol, notes)
                     VALUES (%s, %s)
-                    ON CONFLICT (symbol) DO UPDATE SET
-                        notes = EXCLUDED.notes,
+                    ON DUPLICATE KEY UPDATE
+                        notes = VALUES(notes),
                         added_date = CURRENT_TIMESTAMP
                     """, (symbol.upper(), notes))
                 self.conn.commit()
+            finally:
+                cursor.close()
         self.execute_with_retry(operation)
 
     def remove_from_watchlist(self, symbol):
         def operation():
-            with self.conn.cursor() as cur:
-                cur.execute("""
+            cursor = self.conn.cursor()
+            try:
+                cursor.execute("""
                     DELETE FROM watchlist_stocks 
                     WHERE symbol = %s
                     """, (symbol.upper(),))
                 self.conn.commit()
+            finally:
+                cursor.close()
         self.execute_with_retry(operation)
 
     def get_watchlist(self):
         def operation():
-            with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("""
+            cursor = self.conn.cursor(dictionary=True)
+            try:
+                cursor.execute("""
                     SELECT * FROM watchlist_stocks 
                     ORDER BY added_date DESC
                     """)
-                return cur.fetchall()
+                return cursor.fetchall()
+            finally:
+                cursor.close()
         return self.execute_with_retry(operation)
 
     def save_trading_decision(self, symbol: str, decision: str, confidence: float, agent_name: str = 'supervisor'):
         def operation():
-            with self.conn.cursor() as cur:
-                cur.execute("""
+            cursor = self.conn.cursor()
+            try:
+                cursor.execute("""
                     INSERT INTO trading_decisions (symbol, decision, confidence, agent_name)
                     VALUES (%s, %s, %s, %s)
                     """, (symbol, decision, confidence, agent_name))
                 self.conn.commit()
+            finally:
+                cursor.close()
         self.execute_with_retry(operation)
 
     def get_latest_trading_decisions(self, symbol: str, limit: int = 2):
         def operation():
-            with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("""
+            cursor = self.conn.cursor(dictionary=True)
+            try:
+                cursor.execute("""
                     SELECT decision, confidence, agent_name, created_at
                     FROM trading_decisions
                     WHERE symbol = %s
                     ORDER BY created_at DESC
                     LIMIT %s
                     """, (symbol, limit))
-                return cur.fetchall()
+                return cursor.fetchall()
+            finally:
+                cursor.close()
         return self.execute_with_retry(operation)
 
     def get_all_agent_decisions(self, symbol: str):
         def operation():
-            with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("""
+            cursor = self.conn.cursor(dictionary=True)
+            try:
+                cursor.execute("""
                     WITH RankedDecisions AS (
                         SELECT 
                             symbol,
@@ -298,7 +326,9 @@ class Database:
                     SELECT symbol, decision, confidence, agent_name, created_at
                     FROM RankedDecisions
                     WHERE rn = 1
-                    ORDER BY agent_name;
+                    ORDER BY agent_name
                     """, (symbol,))
-                return cur.fetchall()
+                return cursor.fetchall()
+            finally:
+                cursor.close()
         return self.execute_with_retry(operation)
