@@ -16,30 +16,14 @@ class Database:
         retry_count = 0
         while retry_count < self.max_retries:
             try:
-                # Get DATABASE_URL from environment
-                database_url = os.environ.get('DATABASE_URL')
-                if not database_url:
-                    # Fallback to individual connection parameters
-                    self.conn = psycopg2.connect(
-                        dbname=os.environ.get('PGDATABASE', 'postgres'),
-                        user=os.environ.get('PGUSER', 'postgres'),
-                        password=os.environ.get('PGPASSWORD', ''),
-                        host=os.environ.get('PGHOST', 'localhost'),
-                        port=os.environ.get('PGPORT', '5432')
-                    )
-                else:
-                    # Clean up the URL to ensure no external connections
-                    if 'neon' in database_url.lower():
-                        print("Warning: Found Neon Tech URL, switching to local database")
-                        self.conn = psycopg2.connect(
-                            dbname=os.environ.get('PGDATABASE', 'postgres'),
-                            user=os.environ.get('PGUSER', 'postgres'),
-                            password=os.environ.get('PGPASSWORD', ''),
-                            host=os.environ.get('PGHOST', 'localhost'),
-                            port=os.environ.get('PGPORT', '5432')
-                        )
-                    else:
-                        self.conn = psycopg2.connect(database_url)
+                # Connect using individual connection parameters for local PostgreSQL
+                self.conn = psycopg2.connect(
+                    dbname=os.environ.get('PGDATABASE', 'postgres'),
+                    user=os.environ.get('PGUSER', 'postgres'),
+                    password=os.environ.get('PGPASSWORD', ''),
+                    host='localhost',
+                    port=os.environ.get('PGPORT', '5432')
+                )
 
                 self.conn.autocommit = False
                 print("Successfully connected to PostgreSQL database!")
@@ -50,7 +34,7 @@ class Database:
                 print("Current connection details (without password):")
                 print(f"Database: {os.environ.get('PGDATABASE', 'Not set')}")
                 print(f"User: {os.environ.get('PGUSER', 'Not set')}")
-                print(f"Host: {os.environ.get('PGHOST', 'Not set')}")
+                print(f"Host: localhost")
                 print(f"Port: {os.environ.get('PGPORT', 'Not set')}")
 
                 if retry_count == self.max_retries:
