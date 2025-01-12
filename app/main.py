@@ -230,26 +230,35 @@ with tab2:
         st.write("Your Watchlist:")
         for stock in watchlist:
             try:
-                # Get current stock data
-                stock_data = market_data.get_stock_data(stock['symbol'])
-                if not stock_data.empty:
-                    current_price = stock_data['Close'].iloc[-1]
-                    avg_volume = stock_data['Volume'].mean()
+                # Get current stock data (2 days to get yesterday's price)
+                stock_data = market_data.get_stock_data(stock['symbol'], period='2d')
+                if not stock_data.empty and len(stock_data) >= 2:
+                    today_price = stock_data['Close'].iloc[-1]
+                    yesterday_price = stock_data['Close'].iloc[-2]
+                    price_change = today_price - yesterday_price
+                    price_change_pct = (price_change / yesterday_price) * 100
+                    volume = stock_data['Volume'].iloc[-1]
 
                     # Display stock info in columns
-                    col1, col2, col3 = st.columns([2, 2, 1])
+                    col1, col2, col3, col4 = st.columns([2, 3, 2, 1])
                     with col1:
                         st.write(f"**{stock['symbol']}**")
                         if stock['notes']:
                             st.write(stock['notes'])
                     with col2:
-                        st.write(f"Price: ${current_price:.2f}")
-                        st.write(f"Volume: {avg_volume:,.0f}")
+                        st.write(f"Today: ${today_price:.2f}")
+                        st.write(f"Yesterday: ${yesterday_price:.2f}")
+                        color = "green" if price_change >= 0 else "red"
+                        st.markdown(f"Change: <span style='color:{color}'>${price_change:.2f} ({price_change_pct:.1f}%)</span>", unsafe_allow_html=True)
                     with col3:
+                        st.write(f"Volume: {volume:,.0f}")
+                    with col4:
                         if st.button("Remove", key=f"remove_{stock['symbol']}"):
                             db.remove_from_watchlist(stock['symbol'])
                             st.experimental_rerun()
                     st.write("---")
+                else:
+                    st.error(f"Insufficient data for {stock['symbol']}")
             except Exception as e:
                 st.error(f"Error fetching data for {stock['symbol']}: {str(e)}")
     else:
