@@ -144,14 +144,15 @@ def analyze_watchlist_stock(symbol, data):
     progress_placeholder.write("🎯 Supervisor Agent making final decision...")
     decision = supervisor.make_decision(signals, trend_analysis, sentiment_analysis)
 
-    # Save supervisor decision
-    db.save_trading_decision(symbol, decision['decision'], 
-                           0.9, 'supervisor')
+    # Save supervisor decision with explicit decision text
+    supervisor_action = extract_trading_action(decision['decision'])
+    supervisor_decision = f"{supervisor_action} - {decision['decision'][:100]}..."  # Include first 100 chars of analysis
+    db.save_trading_decision(symbol, supervisor_decision, 0.9, 'supervisor')
 
     # Clear the progress display
     progress_placeholder.empty()
 
-    return decision['decision'], 0.9
+    return supervisor_decision, 0.9
 
 
 # Streamlit UI
@@ -392,12 +393,25 @@ with tab2:
                                     entry, exit = calculate_trade_points(stock_data)
                                     st.write(f"  ↳ Entry: ${entry} | Exit: ${exit}")
 
-                        st.write("**Supervisor Decision:**")
+                        # Display supervisor decision prominently
+                        st.write("---")
+                        st.write("**📊 Supervisor's Final Decision:**")
                         supervisor_decisions = [d for d in agent_decisions if d['agent_name'] == 'supervisor']
                         if supervisor_decisions:
                             current = supervisor_decisions[0]
                             action = extract_trading_action(current['decision'])
-                            st.write(f"({current['created_at'].strftime('%Y-%m-%d')}): {action}")
+                            st.write(f"Decision: {action}")
+                            st.write(f"Analysis: {current['decision']}")
+                            st.write(f"Confidence: {current['confidence']:.2f}")
+                            st.write(f"As of: {current['created_at'].strftime('%Y-%m-%d %H:%M')}")
+
+                            # Show entry/exit points for supervisor's buy signals
+                            if action == 'BUY':
+                                entry, exit = calculate_trade_points(stock_data)
+                                st.write(f"Recommended Entry: ${entry}")
+                                st.write(f"Recommended Exit: ${exit}")
+                        else:
+                            st.write("No supervisor decision available yet. Click 'Update All Trading Recommendations' to analyze.")
 
                     if st.button("Remove", key=f"remove_{stock['symbol']}"):
                         db.remove_from_watchlist(stock['symbol'])
