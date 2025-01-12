@@ -3,7 +3,6 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from datetime import datetime
 import time
-import urllib.parse
 
 class Database:
     def __init__(self, max_retries=3):
@@ -17,27 +16,12 @@ class Database:
         retry_count = 0
         while retry_count < self.max_retries:
             try:
-                # Get DATABASE_URL from environment
+                # Connect using DATABASE_URL from Replit
                 database_url = os.environ.get('DATABASE_URL')
                 if not database_url:
                     raise Exception("DATABASE_URL environment variable is not set")
 
-                # Parse the URL to get components
-                result = urllib.parse.urlparse(database_url)
-                username = result.username
-                password = result.password
-                database = result.path[1:]
-                hostname = result.hostname
-                port = result.port
-
-                # Connect using parsed components
-                self.conn = psycopg2.connect(
-                    dbname=database,
-                    user=username,
-                    password=password,
-                    host=hostname,
-                    port=port
-                )
+                self.conn = psycopg2.connect(database_url)
                 self.conn.autocommit = False
                 print("Successfully connected to PostgreSQL database!")
                 return
