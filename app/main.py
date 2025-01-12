@@ -68,29 +68,42 @@ def analyze_trading_signals(data):
 
 def analyze_watchlist_stock(symbol, data):
     """Analyze a single watchlist stock using our AI agents"""
-    signals = {
-        name: agent.analyze(data)
-        for name, agent in trading_agents.items()
-    }
+    signals = {}
 
-    trend_analysis = {
-        timeframe: agent.analyze_trend(data)
-        for timeframe, agent in market_trend_agents.items()
-    }
+    # Create a placeholder for progress
+    progress_placeholder = st.empty()
 
-    sentiment_analysis = {
-        timeframe: agent.analyze_sentiment(symbol)
-        for timeframe, agent in sentiment_agents.items()
-    }
+    # Show trading agents analysis progress
+    progress_placeholder.write("🤖 Trading Agents Analysis:")
+    for name, agent in trading_agents.items():
+        progress_placeholder.write(f"  ↳ {name} Strategy Agent analyzing {symbol}...")
+        signals[name] = agent.analyze(data)
 
+    # Show market trend analysis progress
+    progress_placeholder.write("📈 Market Trend Analysis:")
+    trend_analysis = {}
+    for timeframe, agent in market_trend_agents.items():
+        progress_placeholder.write(f"  ↳ {timeframe} Trend Agent analyzing market conditions...")
+        trend_analysis[timeframe] = agent.analyze_trend(data)
+
+    # Show sentiment analysis progress
+    progress_placeholder.write("📰 Sentiment Analysis:")
+    sentiment_analysis = {}
+    for timeframe, agent in sentiment_agents.items():
+        progress_placeholder.write(f"  ↳ {timeframe} Sentiment Agent analyzing news and social media...")
+        sentiment_analysis[timeframe] = agent.analyze_sentiment(symbol)
+
+    # Show supervisor decision making
+    progress_placeholder.write("🎯 Supervisor Agent making final decision...")
     decision = supervisor.make_decision(signals, trend_analysis, sentiment_analysis)
 
-    # Extract the core decision and confidence from the supervisor's response
-    # The confidence is typically mentioned in the decision text
+    # Clear the progress display
+    progress_placeholder.empty()
+
+    # Extract decision and confidence
     decision_text = decision['decision']
     confidence = 0.0
 
-    # Look for confidence value in the decision text
     if 'confidence' in decision_text.lower():
         try:
             confidence_str = decision_text.lower().split('confidence')[1].split('\n')[0]
@@ -234,18 +247,35 @@ with tab2:
 
     # Add update recommendations button
     if st.button("Update All Trading Recommendations"):
-        with st.spinner("Updating trading recommendations for all watchlist stocks..."):
+        with st.spinner("Updating trading recommendations..."):
+            # Add a progress bar for overall progress
+            progress_bar = st.progress(0)
             watchlist = db.get_watchlist()
-            for stock in watchlist:
+
+            for i, stock in enumerate(watchlist):
                 try:
-                    stock_data = market_data.get_stock_data(stock['symbol'], period='5d')
-                    if not stock_data.empty and len(stock_data) >= 2:
-                        stock_data = market_data.calculate_technical_indicators(stock_data)
-                        decision_text, confidence = analyze_watchlist_stock(stock['symbol'], stock_data)
-                        db.save_trading_decision(stock['symbol'], decision_text, confidence)
+                    # Create an expander for each stock's analysis process
+                    with st.expander(f"Analyzing {stock['symbol']}", expanded=True):
+                        st.write(f"🔄 Processing {stock['symbol']}...")
+
+                        stock_data = market_data.get_stock_data(stock['symbol'], period='5d')
+                        if not stock_data.empty and len(stock_data) >= 2:
+                            stock_data = market_data.calculate_technical_indicators(stock_data)
+                            decision_text, confidence = analyze_watchlist_stock(stock['symbol'], stock_data)
+                            db.save_trading_decision(stock['symbol'], decision_text, confidence)
+                            st.write(f"✅ Analysis completed for {stock['symbol']}")
+                        else:
+                            st.error(f"Insufficient data for {stock['symbol']}")
+
+                    # Update progress bar
+                    progress = (i + 1) / len(watchlist)
+                    progress_bar.progress(progress)
+
                 except Exception as e:
                     st.error(f"Error updating recommendations for {stock['symbol']}: {str(e)}")
-        st.success("Trading recommendations updated!")
+
+            progress_bar.empty()  # Clear the progress bar
+            st.success("Trading recommendations updated!")
 
     # Add stock to watchlist
     new_symbol = st.text_input("Enter Stock Symbol").upper()
