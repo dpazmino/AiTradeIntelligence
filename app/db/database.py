@@ -16,25 +16,22 @@ class Database:
         retry_count = 0
         while retry_count < self.max_retries:
             try:
-                print(f"Attempting connection using PostgreSQL parameters (attempt {retry_count + 1}/{self.max_retries})...")
+                # Connect using the PostgreSQL environment variables provided by Replit
                 self.conn = psycopg2.connect(
                     dbname=os.environ.get('PGDATABASE'),
                     user=os.environ.get('PGUSER'),
                     password=os.environ.get('PGPASSWORD'),
-                    host=os.environ.get('PGHOST'),
-                    port=os.environ.get('PGPORT')
+                    host='localhost',  # Use localhost for Replit's PostgreSQL
+                    port=os.environ.get('PGPORT', 5432)  # Default to 5432 if not specified
                 )
                 self.conn.autocommit = False
-                print("Database connection established successfully!")
+                print("Successfully connected to Replit PostgreSQL database!")
                 return
-
             except Exception as e:
-                print(f"Connection error details: {str(e)}")
                 retry_count += 1
                 if retry_count == self.max_retries:
-                    print("All connection attempts failed!")
                     raise Exception(f"Failed to connect to database after {self.max_retries} attempts: {str(e)}")
-                print(f"Retrying in 5 seconds... (Attempt {retry_count + 1}/{self.max_retries})")
+                print(f"Connection attempt {retry_count} failed, retrying in 5 seconds...")
                 time.sleep(5)
 
     def ensure_connection(self):
@@ -43,9 +40,8 @@ class Database:
             # Try to execute a simple query to test connection
             with self.conn.cursor() as cur:
                 cur.execute("SELECT 1")
-        except Exception as e:
-            print(f"Connection check failed: {str(e)}")
-            print("Attempting to reconnect...")
+        except Exception:
+            print("Connection lost, attempting to reconnect...")
             self.connect_with_retry()
 
     def create_tables(self):
