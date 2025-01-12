@@ -21,6 +21,7 @@ class Database:
                 cur.execute("""
                     CREATE SEQUENCE IF NOT EXISTS portfolio_id_seq;
                     CREATE SEQUENCE IF NOT EXISTS trading_signals_id_seq;
+                    CREATE SEQUENCE IF NOT EXISTS watchlist_stocks_id_seq;
                 """)
 
                 # Create tables using the sequences
@@ -57,6 +58,15 @@ class Database:
                         average_volume BIGINT NOT NULL,
                         last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         UNIQUE(symbol)
+                    )
+                """)
+
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS watchlist_stocks (
+                        id SERIAL PRIMARY KEY,
+                        symbol VARCHAR(10) NOT NULL UNIQUE,
+                        notes TEXT,
+                        added_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
 
@@ -130,3 +140,30 @@ class Database:
                 WHERE last_updated < NOW() - INTERVAL '%s hours'
                 """, (hours,))
             self.conn.commit()
+
+    def add_to_watchlist(self, symbol, notes=None):
+        with self.conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO watchlist_stocks (symbol, notes)
+                VALUES (%s, %s)
+                ON CONFLICT (symbol) DO UPDATE SET
+                    notes = EXCLUDED.notes,
+                    added_date = CURRENT_TIMESTAMP
+                """, (symbol.upper(), notes))
+            self.conn.commit()
+
+    def remove_from_watchlist(self, symbol):
+        with self.conn.cursor() as cur:
+            cur.execute("""
+                DELETE FROM watchlist_stocks 
+                WHERE symbol = %s
+                """, (symbol.upper(),))
+            self.conn.commit()
+
+    def get_watchlist(self):
+        with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT * FROM watchlist_stocks 
+                ORDER BY added_date DESC
+                """)
+            return cur.fetchall()

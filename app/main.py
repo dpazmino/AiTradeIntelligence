@@ -164,83 +164,119 @@ with tab1:
 
 with tab2:
     st.subheader("Stock Screener")
-    st.write("Stocks between $20-30, daily volume > 1M shares, not in hedge funds")
 
-    def get_stock_universe():
-        """Get a list of stocks to screen from major indices"""
-        try:
-            # Get stocks from S&P 600 Small Cap (more likely to be in our price range)
-            sp600 = pd.read_html('https://en.wikipedia.org/wiki/List_of_S%26P_600_companies')[0]
-            symbols = sp600['Symbol'].tolist()
+    # Create two columns for the screener and watchlist
+    screener_col, watchlist_col = st.columns([2, 1])
 
-            # Add stocks from Russell 2000 (another source of mid-range stocks)
-            russell2000 = pd.read_html('https://en.wikipedia.org/wiki/List_of_Russell_2000_companies')[0]
-            symbols.extend(russell2000['Ticker'].tolist())
+    with screener_col:
+        st.write("Stocks between $20-30, daily volume > 1M shares, not in hedge funds")
 
-            # Remove duplicates and clean symbols
-            symbols = list(set([sym.strip() for sym in symbols if isinstance(sym, str)]))
-            return symbols
-        except Exception as e:
-            st.error(f"Error fetching stock universe: {str(e)}")
-            return []
+        def get_stock_universe():
+            """Get a list of stocks to screen from major indices"""
+            try:
+                # Get stocks from S&P 600 Small Cap (more likely to be in our price range)
+                sp600 = pd.read_html('https://en.wikipedia.org/wiki/List_of_S%26P_600_companies')[0]
+                symbols = sp600['Symbol'].tolist()
 
-    def screen_stock(symbol):
-        """Screen individual stock based on our criteria"""
-        try:
-            stock_data = market_data.get_stock_data(symbol)
-            if not stock_data.empty:
-                current_price = stock_data['Close'].iloc[-1]
-                avg_volume = stock_data['Volume'].mean()
+                # Add stocks from Russell 2000 (another source of mid-range stocks)
+                russell2000 = pd.read_html('https://en.wikipedia.org/wiki/List_of_Russell_2000_companies')[0]
+                symbols.extend(russell2000['Ticker'].tolist())
 
-                # Check if stock meets our criteria
-                if 20 <= current_price <= 30 and avg_volume > 1_000_000:
-                    ticker = yf.Ticker(symbol)
-                    info = ticker.info
-                    company_name = info.get('longName', symbol)
+                # Remove duplicates and clean symbols
+                symbols = list(set([sym.strip() for sym in symbols if isinstance(sym, str)]))
+                return symbols
+            except Exception as e:
+                st.error(f"Error fetching stock universe: {str(e)}")
+                return []
 
-                    # Additional check for institutional ownership
-                    inst_holders = ticker.institutional_holders
-                    if inst_holders is not None and len(inst_holders) < 100:  # Less institutional ownership
-                        return (symbol, company_name, current_price, avg_volume)
-        except Exception as e:
-            print(f"Error screening {symbol}: {str(e)}")
-        return None
+        def screen_stock(symbol):
+            """Screen individual stock based on our criteria"""
+            try:
+                stock_data = market_data.get_stock_data(symbol)
+                if not stock_data.empty:
+                    current_price = stock_data['Close'].iloc[-1]
+                    avg_volume = stock_data['Volume'].mean()
 
+                    # Check if stock meets our criteria
+                    if 20 <= current_price <= 30 and avg_volume > 1_000_000:
+                        ticker = yf.Ticker(symbol)
+                        info = ticker.info
+                        company_name = info.get('longName', symbol)
 
-    # Add refresh button for screener
-    if st.button("Refresh Screener"):
-        with st.spinner("Fetching stock universe..."):
-            symbols = get_stock_universe()
-            st.info(f"Screening {len(symbols)} stocks...")
+                        # Additional check for institutional ownership
+                        inst_holders = ticker.institutional_holders
+                        if inst_holders is not None and len(inst_holders) < 100:  # Less institutional ownership
+                            return (symbol, company_name, current_price, avg_volume)
+            except Exception as e:
+                print(f"Error screening {symbol}: {str(e)}")
+            return None
 
-            # Clear old screened stocks
-            db.clear_old_screened_stocks(hours=24)
+        # Add refresh button for screener
+        if st.button("Refresh Screener"):
+            with st.spinner("Fetching stock universe..."):
+                symbols = get_stock_universe()
+                st.info(f"Screening {len(symbols)} stocks...")
 
-            # Screen stocks with progress bar
-            progress_bar = st.progress(0)
-            screened_count = 0
+                # Clear old screened stocks
+                db.clear_old_screened_stocks(hours=24)
 
-            with ThreadPoolExecutor(max_workers=5) as executor:
-                futures = [executor.submit(screen_stock, symbol) for symbol in symbols]
-                total = len(futures)
+                # Screen stocks with progress bar
+                progress_bar = st.progress(0)
+                screened_count = 0
 
-                for i, future in enumerate(futures):
-                    result = future.result()
-                    if result:
-                        symbol, company_name, current_price, avg_volume = result
-                        db.upsert_screened_stock(symbol, company_name, current_price, avg_volume)
-                        screened_count += 1
-                    progress_bar.progress((i + 1) / total)
+                with ThreadPoolExecutor(max_workers=5) as executor:
+                    futures = [executor.submit(screen_stock, symbol) for symbol in symbols]
+                    total = len(futures)
 
-            st.success(f"Found {screened_count} stocks matching criteria")
+                    for i, future in enumerate(futures):
+                        result = future.result()
+                        if result:
+                            symbol, company_name, current_price, avg_volume = result
+                            db.upsert_screened_stock(symbol, company_name, current_price, avg_volume)
+                            screened_count += 1
+                        progress_bar.progress((i + 1) / total)
 
-    # Display screened stocks
-    screened_stocks = db.get_screened_stocks()
-    if screened_stocks:
-        df = pd.DataFrame(screened_stocks)
-        df['last_updated'] = pd.to_datetime(df['last_updated'])
-        df = df[['symbol', 'company_name', 'current_price', 'average_volume', 'last_updated']]
-        df.columns = ['Symbol', 'Company Name', 'Price ($)', 'Avg Volume', 'Last Updated']
-        st.dataframe(df)
-    else:
-        st.info("No stocks currently meet the screening criteria. Click 'Refresh Screener' to scan for matches.")
+                st.success(f"Found {screened_count} stocks matching criteria")
+
+        # Display screened stocks
+        screened_stocks = db.get_screened_stocks()
+        if screened_stocks:
+            df = pd.DataFrame(screened_stocks)
+            df['last_updated'] = pd.to_datetime(df['last_updated'])
+            df = df[['symbol', 'company_name', 'current_price', 'average_volume', 'last_updated']]
+            df.columns = ['Symbol', 'Company Name', 'Price ($)', 'Avg Volume', 'Last Updated']
+            st.dataframe(df)
+        else:
+            st.info("No stocks currently meet the screening criteria. Click 'Refresh Screener' to scan for matches.")
+
+    with watchlist_col:
+        st.subheader("Watchlist")
+
+        # Add stock to watchlist
+        new_symbol = st.text_input("Enter Stock Symbol").upper()
+        notes = st.text_area("Notes (optional)", height=100)
+
+        if st.button("Add to Watchlist") and new_symbol:
+            try:
+                db.add_to_watchlist(new_symbol, notes)
+                st.success(f"Added {new_symbol} to watchlist")
+            except Exception as e:
+                st.error(f"Error adding {new_symbol} to watchlist: {str(e)}")
+
+        # Display watchlist
+        watchlist = db.get_watchlist()
+        if watchlist:
+            st.write("Your Watchlist:")
+            for stock in watchlist:
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    st.write(f"**{stock['symbol']}**")
+                    if stock['notes']:
+                        st.write(stock['notes'])
+                with col2:
+                    if st.button("Remove", key=f"remove_{stock['symbol']}"):
+                        db.remove_from_watchlist(stock['symbol'])
+                        st.experimental_rerun()
+                st.write("---")
+        else:
+            st.info("Your watchlist is empty. Add symbols above.")
