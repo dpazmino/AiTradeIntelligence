@@ -18,9 +18,10 @@ class Database:
             try:
                 self.conn = mysql.connector.connect(
                     host='127.0.0.1',
-                    user='root',
-                    password='',
-                    database='ai_hedge_fund'
+                    user='runner',  # Using the runner user that was created during initialization
+                    password='',    # No password was set during initialization
+                    database='ai_hedge_fund',
+                    port=3306
                 )
 
                 print("Successfully connected to MySQL database!")
@@ -31,7 +32,7 @@ class Database:
                 print("Current connection details (without password):")
                 print(f"Host: 127.0.0.1")
                 print(f"Database: ai_hedge_fund")
-                print(f"User: root")
+                print(f"User: runner")
 
                 if retry_count == self.max_retries:
                     raise Exception(f"Failed to connect to database after {self.max_retries} attempts: {str(e)}")
