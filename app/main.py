@@ -66,14 +66,34 @@ def analyze_trading_signals(data):
 
     return signals, trend_analysis, sentiment_analysis, decision
 
-def extract_trading_action(decision_text):
-    """Extract basic trading action from decision text"""
-    decision_text = decision_text.lower()
-    if 'buy' in decision_text:
-        return 'BUY'
-    elif 'sell' in decision_text:
-        return 'SELL'
-    return 'HOLD'
+def calculate_trade_points(data):
+    """Calculate entry and exit points based on technical indicators"""
+    current_price = data['Close'].iloc[-1]
+
+    # Use Bollinger Bands for support/resistance levels
+    upper_band = data['Upper_Band'].iloc[-1]
+    lower_band = data['Lower_Band'].iloc[-1]
+
+    # Calculate entry point (near support) and exit point (near resistance)
+    entry_point = round(lower_band + (current_price - lower_band) * 0.1, 2)  # 10% above support
+    exit_point = round(upper_band - (upper_band - current_price) * 0.1, 2)   # 10% below resistance
+
+    return entry_point, exit_point
+
+def get_agent_decisions(symbol, data):
+    """Get individual trading agent decisions"""
+    agent_decisions = {}
+
+    # Get trading signals from each strategy agent
+    for name, agent in trading_agents.items():
+        signals = agent.analyze(data)
+        action = 'BUY' if signals.get('buy', False) else 'SELL' if signals.get('sell', False) else 'HOLD'
+        agent_decisions[name] = {
+            'action': action,
+            'confidence': signals.get('confidence', 0.0)
+        }
+
+    return agent_decisions
 
 def analyze_watchlist_stock(symbol, data):
     """Analyze a single watchlist stock using our AI agents"""
@@ -121,6 +141,7 @@ def analyze_watchlist_stock(symbol, data):
             confidence = 0.5  # Default confidence if parsing fails
 
     return decision_text, confidence
+
 
 # Streamlit UI
 st.title("AI Hedge Fund Dashboard")
@@ -327,24 +348,42 @@ with tab2:
                     price_change_pct = (price_change / yesterday_price) * 100
                     volume = stock_data['Volume'].iloc[-1]
 
+                    # Calculate technical indicators
+                    stock_data = market_data.calculate_technical_indicators(stock_data)
+
+                    # Get agent decisions
+                    agent_decisions = get_agent_decisions(stock['symbol'], stock_data)
+
                     # Get latest trading decisions
                     decisions = db.get_latest_trading_decisions(stock['symbol'], limit=2)
 
                     # Display stock info in columns
-                    col1, col2, col3, col4, col5 = st.columns([2, 3, 2, 3, 1])
+                    col1, col2, col3 = st.columns([2, 2, 3])
+
                     with col1:
                         st.write(f"**{stock['symbol']}**")
                         if stock['notes']:
                             st.write(stock['notes'])
+
                     with col2:
-                        st.write(f"Today: ${today_price:.2f}")
-                        st.write(f"Yesterday: ${yesterday_price:.2f}")
+                        st.write(f"Price: ${today_price:.2f}")
                         color = "green" if price_change >= 0 else "red"
                         st.markdown(f"Change: <span style='color:{color}'>${price_change:.2f} ({price_change_pct:.1f}%)</span>", unsafe_allow_html=True)
-                    with col3:
                         st.write(f"Volume: {volume:,.0f}")
-                    with col4:
-                        st.write("**Trading Decisions:**")
+
+                    with col3:
+                        st.write("**Agent Decisions:**")
+                        for strategy, decision in agent_decisions.items():
+                            action = decision['action']
+                            confidence = decision['confidence']
+                            st.write(f"{strategy}: {action} (conf: {confidence:.2f})")
+
+                            # Show entry/exit points for buy signals
+                            if action == 'BUY':
+                                entry, exit = calculate_trade_points(stock_data)
+                                st.write(f"  ↳ Entry: ${entry} | Exit: ${exit}")
+
+                        st.write("**Supervisor Decisions:**")
                         if decisions:
                             current = decisions[0]
                             action = extract_trading_action(current['decision'])
@@ -354,12 +393,11 @@ with tab2:
                                 previous = decisions[1]
                                 prev_action = extract_trading_action(previous['decision'])
                                 st.write(f"Previous ({previous['created_at'].strftime('%Y-%m-%d')}): {prev_action}")
-                        else:
-                            st.write("No decisions yet")
-                    with col5:
-                        if st.button("Remove", key=f"remove_{stock['symbol']}"):
-                            db.remove_from_watchlist(stock['symbol'])
-                            st.experimental_rerun()
+
+                    if st.button("Remove", key=f"remove_{stock['symbol']}"):
+                        db.remove_from_watchlist(stock['symbol'])
+                        st.experimental_rerun()
+
                     st.write("---")
                 else:
                     st.error(f"Insufficient data for {stock['symbol']}")
