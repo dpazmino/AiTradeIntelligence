@@ -16,22 +16,14 @@ class Database:
         retry_count = 0
         while retry_count < self.max_retries:
             try:
-                # Try to connect using DATABASE_URL first
-                database_url = os.environ.get('DATABASE_URL')
-                if database_url:
-                    print(f"Attempting connection using DATABASE_URL (attempt {retry_count + 1}/{self.max_retries})...")
-                    self.conn = psycopg2.connect(database_url)
-                else:
-                    # Fallback to individual parameters
-                    print(f"Attempting connection using individual parameters (attempt {retry_count + 1}/{self.max_retries})...")
-                    self.conn = psycopg2.connect(
-                        dbname=os.environ.get('PGDATABASE'),
-                        user=os.environ.get('PGUSER'),
-                        password=os.environ.get('PGPASSWORD'),
-                        host=os.environ.get('PGHOST'),
-                        port=os.environ.get('PGPORT')
-                    )
-
+                print(f"Attempting connection using PostgreSQL parameters (attempt {retry_count + 1}/{self.max_retries})...")
+                self.conn = psycopg2.connect(
+                    dbname=os.environ.get('PGDATABASE'),
+                    user=os.environ.get('PGUSER'),
+                    password=os.environ.get('PGPASSWORD'),
+                    host=os.environ.get('PGHOST'),
+                    port=os.environ.get('PGPORT')
+                )
                 self.conn.autocommit = False
                 print("Database connection established successfully!")
                 return
