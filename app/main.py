@@ -66,6 +66,15 @@ def analyze_trading_signals(data):
 
     return signals, trend_analysis, sentiment_analysis, decision
 
+def extract_trading_action(decision_text):
+    """Extract basic trading action from decision text"""
+    decision_text = decision_text.lower()
+    if 'buy' in decision_text:
+        return 'BUY'
+    elif 'sell' in decision_text:
+        return 'SELL'
+    return 'HOLD'
+
 def analyze_watchlist_stock(symbol, data):
     """Analyze a single watchlist stock using our AI agents"""
     signals = {}
@@ -338,13 +347,13 @@ with tab2:
                         st.write("**Trading Decisions:**")
                         if decisions:
                             current = decisions[0]
-                            st.write(f"Current ({current['created_at'].strftime('%Y-%m-%d')}):")
-                            st.write(current['decision'])
+                            action = extract_trading_action(current['decision'])
+                            st.write(f"Current ({current['created_at'].strftime('%Y-%m-%d')}): {action}")
 
                             if len(decisions) > 1:
                                 previous = decisions[1]
-                                st.write(f"Previous ({previous['created_at'].strftime('%Y-%m-%d')}):")
-                                st.write(previous['decision'])
+                                prev_action = extract_trading_action(previous['decision'])
+                                st.write(f"Previous ({previous['created_at'].strftime('%Y-%m-%d')}): {prev_action}")
                         else:
                             st.write("No decisions yet")
                     with col5:
