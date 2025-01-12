@@ -230,8 +230,8 @@ with tab2:
         st.write("Your Watchlist:")
         for stock in watchlist:
             try:
-                # Get current stock data (2 days to get yesterday's price)
-                stock_data = market_data.get_stock_data(stock['symbol'], period='2d')
+                # Get current stock data (using 5d to ensure we have enough data)
+                stock_data = market_data.get_stock_data(stock['symbol'], period='5d')
                 if not stock_data.empty and len(stock_data) >= 2:
                     today_price = stock_data['Close'].iloc[-1]
                     yesterday_price = stock_data['Close'].iloc[-2]
