@@ -66,6 +66,26 @@ def analyze_trading_signals(data):
 
     return signals, trend_analysis, sentiment_analysis, decision
 
+def analyze_watchlist_stock(symbol, data):
+    """Analyze a single watchlist stock using our AI agents"""
+    signals = {
+        name: agent.analyze(data)
+        for name, agent in trading_agents.items()
+    }
+
+    trend_analysis = {
+        timeframe: agent.analyze_trend(data)
+        for timeframe, agent in market_trend_agents.items()
+    }
+
+    sentiment_analysis = {
+        timeframe: agent.analyze_sentiment(symbol)
+        for timeframe, agent in sentiment_agents.items()
+    }
+
+    decision = supervisor.make_decision(signals, trend_analysis, sentiment_analysis)
+    return decision
+
 # Streamlit UI
 st.title("AI Hedge Fund Dashboard")
 
@@ -239,8 +259,15 @@ with tab2:
                     price_change_pct = (price_change / yesterday_price) * 100
                     volume = stock_data['Volume'].iloc[-1]
 
+                    # Add technical indicators for analysis
+                    stock_data = market_data.calculate_technical_indicators(stock_data)
+
+                    # Get AI trading decision
+                    with st.spinner(f"Analyzing {stock['symbol']}..."):
+                        decision = analyze_watchlist_stock(stock['symbol'], stock_data)
+
                     # Display stock info in columns
-                    col1, col2, col3, col4 = st.columns([2, 3, 2, 1])
+                    col1, col2, col3, col4, col5 = st.columns([2, 3, 2, 3, 1])
                     with col1:
                         st.write(f"**{stock['symbol']}**")
                         if stock['notes']:
@@ -253,6 +280,9 @@ with tab2:
                     with col3:
                         st.write(f"Volume: {volume:,.0f}")
                     with col4:
+                        st.write("**AI Decision:**")
+                        st.write(decision['decision'])
+                    with col5:
                         if st.button("Remove", key=f"remove_{stock['symbol']}"):
                             db.remove_from_watchlist(stock['symbol'])
                             st.experimental_rerun()
