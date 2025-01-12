@@ -291,25 +291,53 @@ with tab2:
 
         if st.button("Add to Watchlist") and new_symbol:
             try:
-                db.add_to_watchlist(new_symbol, notes)
-                st.success(f"Added {new_symbol} to watchlist")
+                # Get current stock data
+                stock_data = market_data.get_stock_data(new_symbol)
+                if not stock_data.empty:
+                    current_price = stock_data['Close'].iloc[-1]
+                    avg_volume = stock_data['Volume'].mean()
+
+                    # Get company name
+                    ticker = yf.Ticker(new_symbol)
+                    company_name = ticker.info.get('longName', new_symbol)
+
+                    # Save to watchlist
+                    db.add_to_watchlist(new_symbol, notes)
+                    # Update screened stocks table
+                    db.upsert_screened_stock(new_symbol, company_name, current_price, avg_volume)
+                    st.success(f"Added {new_symbol} to watchlist")
+                else:
+                    st.error(f"Could not fetch data for {new_symbol}")
             except Exception as e:
                 st.error(f"Error adding {new_symbol} to watchlist: {str(e)}")
 
-        # Display watchlist
+        # Display watchlist with current data
         watchlist = db.get_watchlist()
         if watchlist:
             st.write("Your Watchlist:")
             for stock in watchlist:
-                col1, col2 = st.columns([3, 1])
-                with col1:
-                    st.write(f"**{stock['symbol']}**")
-                    if stock['notes']:
-                        st.write(stock['notes'])
-                with col2:
-                    if st.button("Remove", key=f"remove_{stock['symbol']}"):
-                        db.remove_from_watchlist(stock['symbol'])
-                        st.experimental_rerun()
-                st.write("---")
+                try:
+                    # Get current stock data
+                    stock_data = market_data.get_stock_data(stock['symbol'])
+                    if not stock_data.empty:
+                        current_price = stock_data['Close'].iloc[-1]
+                        avg_volume = stock_data['Volume'].mean()
+
+                        # Display stock info in columns
+                        col1, col2, col3 = st.columns([2, 2, 1])
+                        with col1:
+                            st.write(f"**{stock['symbol']}**")
+                            if stock['notes']:
+                                st.write(stock['notes'])
+                        with col2:
+                            st.write(f"Price: ${current_price:.2f}")
+                            st.write(f"Volume: {avg_volume:,.0f}")
+                        with col3:
+                            if st.button("Remove", key=f"remove_{stock['symbol']}"):
+                                db.remove_from_watchlist(stock['symbol'])
+                                st.experimental_rerun()
+                        st.write("---")
+                except Exception as e:
+                    st.error(f"Error fetching data for {stock['symbol']}: {str(e)}")
         else:
             st.info("Your watchlist is empty. Add symbols above.")
