@@ -95,6 +95,15 @@ def get_agent_decisions(symbol, data):
 
     return agent_decisions
 
+def extract_trading_action(decision_text):
+    """Extract basic trading action from decision text"""
+    decision_text = decision_text.lower()
+    if 'buy' in decision_text:
+        return 'BUY'
+    elif 'sell' in decision_text:
+        return 'SELL'
+    return 'HOLD'
+
 def analyze_watchlist_stock(symbol, data):
     """Analyze a single watchlist stock using our AI agents"""
     signals = {}
@@ -141,6 +150,7 @@ def analyze_watchlist_stock(symbol, data):
             confidence = 0.5  # Default confidence if parsing fails
 
     return decision_text, confidence
+
 
 
 # Streamlit UI
