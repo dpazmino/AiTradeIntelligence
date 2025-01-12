@@ -16,20 +16,21 @@ class Database:
         retry_count = 0
         while retry_count < self.max_retries:
             try:
-                self.conn = psycopg2.connect(
-                    host=os.environ['PGHOST'],
-                    database=os.environ['PGDATABASE'],
-                    user=os.environ['PGUSER'],
-                    password=os.environ['PGPASSWORD'],
-                    port=os.environ['PGPORT']
-                )
+                # Use DATABASE_URL instead of individual parameters
+                database_url = os.environ.get('DATABASE_URL')
+                if not database_url:
+                    raise Exception("DATABASE_URL environment variable is not set")
+
+                print(f"Attempting database connection (attempt {retry_count + 1}/{self.max_retries})...")
+                self.conn = psycopg2.connect(database_url)
+                self.conn.autocommit = False  # Explicit transaction management
                 print("Database connection established successfully")
                 break
-            except psycopg2.OperationalError as e:
+            except Exception as e:
                 retry_count += 1
                 if retry_count == self.max_retries:
                     raise Exception(f"Failed to connect to database after {self.max_retries} attempts: {str(e)}")
-                print(f"Database connection attempt {retry_count} failed, retrying in 5 seconds...")
+                print(f"Database connection attempt {retry_count} failed, retrying in 5 seconds... Error: {str(e)}")
                 time.sleep(5)
 
     def ensure_connection(self):
@@ -38,7 +39,7 @@ class Database:
             # Try to execute a simple query to test connection
             with self.conn.cursor() as cur:
                 cur.execute("SELECT 1")
-        except (psycopg2.OperationalError, psycopg2.InterfaceError):
+        except (psycopg2.OperationalError, psycopg2.InterfaceError, AttributeError):
             print("Lost database connection, attempting to reconnect...")
             self.connect_with_retry()
 
