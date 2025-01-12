@@ -45,23 +45,56 @@ sentiment_agents = {
 
 supervisor = SupervisorAgent()
 
+def analyze_trading_signals(data):
+    """Analyze trading signals for the given data"""
+    signals = {
+        name: agent.analyze(data)
+        for name, agent in trading_agents.items()
+    }
+
+    trend_analysis = {
+        timeframe: agent.analyze_trend(data)
+        for timeframe, agent in market_trend_agents.items()
+    }
+
+    sentiment_analysis = {
+        timeframe: agent.analyze_sentiment(st.session_state.symbol)
+        for timeframe, agent in sentiment_agents.items()
+    }
+
+    decision = supervisor.make_decision(signals, trend_analysis, sentiment_analysis)
+
+    return signals, trend_analysis, sentiment_analysis, decision
+
 # Streamlit UI
 st.title("AI Hedge Fund Dashboard")
+
+# Initialize session state for storing analysis results
+if 'signals' not in st.session_state:
+    st.session_state.signals = None
+if 'trend_analysis' not in st.session_state:
+    st.session_state.trend_analysis = None
+if 'sentiment_analysis' not in st.session_state:
+    st.session_state.sentiment_analysis = None
+if 'decision' not in st.session_state:
+    st.session_state.decision = None
+if 'symbol' not in st.session_state:
+    st.session_state.symbol = "AAPL"
 
 # Create tabs
 tab1, tab2 = st.tabs(["Trading Dashboard", "Stock Screener"])
 
 with tab1:
     # Sidebar for symbol selection and controls
-    symbol = st.sidebar.text_input("Stock Symbol", value="AAPL")
-    refresh = st.sidebar.button("Refresh Data")
+    st.session_state.symbol = st.sidebar.text_input("Stock Symbol", value=st.session_state.symbol)
+    analyze_button = st.sidebar.button("Analyze Trading Signals")
 
     # Main content
     col1, col2 = st.columns([2, 1])
 
     with col1:
         st.subheader("Price Chart")
-        data = market_data.get_stock_data(symbol)
+        data = market_data.get_stock_data(st.session_state.symbol)
         data = market_data.calculate_technical_indicators(data)
 
         fig = go.Figure()
@@ -94,53 +127,53 @@ with tab1:
 
         st.plotly_chart(fig)
 
+    # Only analyze signals when the button is clicked
+    if analyze_button:
+        with st.spinner("Analyzing trading signals..."):
+            (st.session_state.signals, 
+             st.session_state.trend_analysis, 
+             st.session_state.sentiment_analysis,
+             st.session_state.decision) = analyze_trading_signals(data)
+
     with col2:
         st.subheader("Trading Signals")
-
-        # Get trading signals
-        signals = {
-            name: agent.analyze(data)
-            for name, agent in trading_agents.items()
-        }
-
-        for strategy, signal in signals.items():
-            st.write(f"**{strategy}**")
-            st.write(f"Signal: {'Buy' if signal['buy'] else 'Sell' if signal['sell'] else 'Hold'}")
-            st.write(f"Confidence: {signal['confidence']:.2f}")
-            st.write("---")
+        if st.session_state.signals:
+            for strategy, signal in st.session_state.signals.items():
+                st.write(f"**{strategy}**")
+                st.write(f"Signal: {'Buy' if signal['buy'] else 'Sell' if signal['sell'] else 'Hold'}")
+                st.write(f"Confidence: {signal['confidence']:.2f}")
+                st.write("---")
+        else:
+            st.info("Click 'Analyze Trading Signals' to view signals")
 
     # Market Trends
     st.subheader("Market Trends")
-    col1, col2, col3 = st.columns(3)
-
-    trend_analysis = {
-        timeframe: agent.analyze_trend(data)
-        for timeframe, agent in market_trend_agents.items()
-    }
-
-    for col, (timeframe, analysis) in zip([col1, col2, col3], trend_analysis.items()):
-        with col:
-            st.write(f"**{timeframe} Analysis**")
-            st.write(analysis['analysis'])
+    if st.session_state.trend_analysis:
+        col1, col2, col3 = st.columns(3)
+        for col, (timeframe, analysis) in zip([col1, col2, col3], st.session_state.trend_analysis.items()):
+            with col:
+                st.write(f"**{timeframe} Analysis**")
+                st.write(analysis['analysis'])
+    else:
+        st.info("Click 'Analyze Trading Signals' to view market trends")
 
     # Sentiment Analysis
     st.subheader("Market Sentiment")
-    col1, col2, col3 = st.columns(3)
-
-    sentiment_analysis = {
-        timeframe: agent.analyze_sentiment(symbol)
-        for timeframe, agent in sentiment_agents.items()
-    }
-
-    for col, (timeframe, analysis) in zip([col1, col2, col3], sentiment_analysis.items()):
-        with col:
-            st.write(f"**{timeframe} Sentiment**")
-            st.write(analysis['analysis'])
+    if st.session_state.sentiment_analysis:
+        col1, col2, col3 = st.columns(3)
+        for col, (timeframe, analysis) in zip([col1, col2, col3], st.session_state.sentiment_analysis.items()):
+            with col:
+                st.write(f"**{timeframe} Sentiment**")
+                st.write(analysis['analysis'])
+    else:
+        st.info("Click 'Analyze Trading Signals' to view sentiment analysis")
 
     # Supervisor Decision
     st.subheader("Trading Decision")
-    decision = supervisor.make_decision(signals, trend_analysis, sentiment_analysis)
-    st.write(decision['decision'])
+    if st.session_state.decision:
+        st.write(st.session_state.decision['decision'])
+    else:
+        st.info("Click 'Analyze Trading Signals' to view trading decision")
 
     # Portfolio Performance
     st.subheader("Portfolio Performance")
