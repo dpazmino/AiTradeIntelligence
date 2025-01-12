@@ -74,13 +74,14 @@ class Database:
                 # Add new table for trading decisions
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS trading_decisions (
-                        id INTEGER PRIMARY KEY DEFAULT nextval('trading_decisions_id_seq'),
+                        id SERIAL PRIMARY KEY,
                         symbol VARCHAR(10) NOT NULL,
                         decision TEXT NOT NULL,
                         confidence FLOAT NOT NULL,
-                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                        UNIQUE(symbol, DATE(created_at))
-                    )
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    );
+                    CREATE UNIQUE INDEX IF NOT EXISTS trading_decisions_daily_idx 
+                    ON trading_decisions (symbol, date(created_at));
                 """)
 
                 self.conn.commit()
@@ -187,11 +188,6 @@ class Database:
             cur.execute("""
                 INSERT INTO trading_decisions (symbol, decision, confidence)
                 VALUES (%s, %s, %s)
-                ON CONFLICT (symbol, DATE(created_at)) 
-                DO UPDATE SET 
-                    decision = EXCLUDED.decision,
-                    confidence = EXCLUDED.confidence,
-                    created_at = CURRENT_TIMESTAMP
                 """, (symbol, decision, confidence))
             self.conn.commit()
 
