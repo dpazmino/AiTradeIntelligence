@@ -18,6 +18,7 @@ from agents.sentiment_agents import SentimentAgent
 from agents.supervisor_agent import SupervisorAgent
 from agents.resistance_agent import ResistanceAnalysisAgent
 from agents.recommendation_agent import StrategyRecommendationAgent # Added import
+from learning.trading_lessons import TradingEducation  # Add this import at the top
 
 
 # Initialize components
@@ -52,6 +53,9 @@ resistance_agent = ResistanceAnalysisAgent() # Added resistance agent initializa
 recommendation_agent = StrategyRecommendationAgent() # Added recommendation agent initialization
 
 supervisor = SupervisorAgent()
+
+# Initialize education module (add this after other initializations)
+education = TradingEducation()
 
 def analyze_trading_signals(data):
     """Analyze trading signals for the given data"""
@@ -212,7 +216,7 @@ if 'symbol' not in st.session_state:
     st.session_state.symbol = "AAPL"
 
 # Create tabs
-tab1, tab2, tab3 = st.tabs(["Trading Dashboard", "Watchlist", "Portfolio"])
+tab1, tab2, tab3, tab4 = st.tabs(["Trading Dashboard", "Watchlist", "Portfolio", "Learning Center"]) # Update the tabs creation line
 
 with tab1:
     # Sidebar for symbol selection and controls
@@ -494,6 +498,7 @@ with tab2:
     else:
         st.info("Your watchlist is empty. Add symbols above.")
 
+
 with tab3:
     st.subheader("Portfolio Performance")
 
@@ -733,3 +738,60 @@ with tab3:
             4. Start with small position sizes to test the strategies
             5. Monitor and adjust based on performance
             """)
+
+
+with tab4:
+    st.title("📚 Trading Strategy Learning Center")
+
+    # Sidebar for lesson navigation
+    selected_lesson = st.sidebar.selectbox(
+        "Select Lesson",
+        options=[lesson.lesson_id for lesson in education.get_all_lessons()],
+        format_func=lambda x: education.get_lesson(x).title
+    )
+
+    # Main content area
+    col1, col2 = st.columns([2, 1])
+
+    with col1:
+        lesson = education.get_lesson(selected_lesson)
+        if lesson:
+            st.header(f"{lesson.title} ({lesson.difficulty})")
+            st.markdown(lesson.content)
+
+            # Interactive quiz section
+            st.subheader("📝 Knowledge Check")
+            for i, quiz in enumerate(lesson.quiz_questions):
+                answer = st.radio(
+                    f"Question {i+1}: {quiz['question']}",
+                    options=quiz['options'],
+                    key=f"quiz_{selected_lesson}_{i}"
+                )
+
+                if st.button(f"Check Answer #{i+1}", key=f"check_{selected_lesson}_{i}"):
+                    selectedindex = quiz['options'].index(answer)
+                    if education.check_quiz_answer(selected_lesson, i, selected_index):
+                        st.success("Correct! 🎉")
+                        # Check if user should earn an achievement
+                        education.unlock_achievement('quiz_ace')
+                    else:
+                        st.error("Try again! 💪")
+
+    with col2:
+        # Achievements section
+        st.subheader("🏆 Your Achievements")
+        achievements = education.get_achievements()
+        for achievement in achievements:
+            if achievement.unlocked:
+                st.success(f"{achievement.icon} {achievement.name}")
+                st.caption(f"Earned on: {achievement.unlocked_at.strftime('%Y-%m-%d')}")
+            else:
+                st.info(f"🔒 {achievement.name}")
+                st.caption(achievement.description)
+
+        # Progress tracking
+        st.subheader("📊 Learning Progress")
+        total_lessons = len(education.get_all_lessons())
+        completed_achievements = len([a for a in achievements if a.unlocked])
+        st.progress(completed_achievements / len(achievements))
+        st.caption(f"Achievements: {completed_achievements}/{len(achievements)}")
