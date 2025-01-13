@@ -225,3 +225,15 @@ class Database:
                 ORDER BY agent_name;
                 """, (symbol,))
             return cur.fetchall()
+
+    def get_latest_position_id(self, symbol: str) -> int:
+        """Get the ID of the most recently added position for a symbol"""
+        with self.conn.cursor() as cur:
+            cur.execute("""
+                SELECT id FROM portfolio 
+                WHERE symbol = %s
+                ORDER BY entry_date DESC 
+                LIMIT 1
+                """, (symbol,))
+            result = cur.fetchone()
+            return result[0] if result else None

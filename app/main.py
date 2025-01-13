@@ -481,6 +481,70 @@ with tab2:
 
 with tab3:
     st.subheader("Portfolio Performance")
+
+    # Add Position Form
+    with st.expander("Add New Position", expanded=False):
+        st.subheader("Add New Position")
+        col1, col2 = st.columns(2)
+
+        with col1:
+            new_symbol = st.text_input("Stock Symbol").upper()
+            quantity = st.number_input("Number of Shares", min_value=1, value=100)
+            entry_price = st.number_input("Entry Price ($)", min_value=0.01, value=100.00, step=0.01)
+            entry_date = st.date_input("Entry Date", value=datetime.now())
+
+        with col2:
+            strategy = st.selectbox("Strategy", options=list(strategies.keys()))
+            exit_price = st.number_input("Exit Price ($) (Optional)", min_value=0.0, value=0.0, step=0.01)
+            exit_date = st.date_input("Exit Date (Optional)", value=None) if exit_price > 0 else None
+
+        # Calculate potential gain/loss
+        if entry_price > 0 and quantity > 0:
+            if exit_price > 0:
+                gain_loss = (exit_price - entry_price) * quantity
+                gain_loss_pct = ((exit_price - entry_price) / entry_price) * 100
+                st.metric("Potential Gain/Loss", 
+                         f"${gain_loss:,.2f}",
+                         f"{gain_loss_pct:,.1f}%")
+            else:
+                # Show current gain/loss based on market price
+                try:
+                    current_price = market_data.get_stock_data(new_symbol)['Close'].iloc[-1]
+                    gain_loss = (current_price - entry_price) * quantity
+                    gain_loss_pct = ((current_price - entry_price) / entry_price) * 100
+                    st.metric("Unrealized Gain/Loss", 
+                             f"${gain_loss:,.2f}",
+                             f"{gain_loss_pct:,.1f}%")
+                except:
+                    st.warning("Enter a valid symbol to see potential gain/loss")
+
+        if st.button("Add Position"):
+            if new_symbol and entry_price > 0 and quantity > 0:
+                try:
+                    # Validate the symbol
+                    stock_data = market_data.get_stock_data(new_symbol)
+                    if not stock_data.empty:
+                        # Add position to database
+                        db.add_position(
+                            symbol=new_symbol,
+                            quantity=quantity,
+                            entry_price=entry_price,
+                            entry_date=entry_date, #Added entry date
+                            strategy=strategy,
+                            exit_price=exit_price, #Added exit price
+                            exit_date=exit_date #Added exit date
+
+                        )
+                        st.success(f"Added position for {new_symbol}")
+                        st.experimental_rerun()
+                    else:
+                        st.error(f"Could not validate symbol {new_symbol}")
+                except Exception as e:
+                    st.error(f"Error adding position: {str(e)}")
+            else:
+                st.error("Please fill in all required fields")
+
+    # Display existing positions
     positions = db.get_open_positions()
     if positions:
         # Calculate current prices first so it's available for both sections
