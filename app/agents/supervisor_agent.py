@@ -115,13 +115,14 @@ class SupervisorAgent:
                     decision_dict['confidence'] = 0.8
             elif 'risk' in line.lower():
                 decision_dict['risk'] = line.split(':')[-1].strip()
-            elif 'rationale' in line.lower():
-                decision_dict['rationale'] = line.split(':')[-1].strip()
+            elif 'rationale' in line.lower() or 'supporting rationale' in line.lower():
+                # Get everything after the colon for rationale
+                decision_dict['rationale'] = ': '.join(line.split(':')[1:]).strip()
 
-        # Format the final decision text
+        # Format the final decision text with complete rationale
         decision_text = (
             f"{decision_dict.get('action', 'HOLD')} - "
-            f"Risk: {decision_dict.get('risk', 'Medium')}, "
+            f"Risk: {decision_dict.get('risk', 'Medium')}\n"
             f"Rationale: {decision_dict.get('rationale', 'Insufficient data for strong conviction')}"
         )
 
