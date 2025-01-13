@@ -12,6 +12,7 @@ from strategies.macd_strategy import MACDStrategy
 from strategies.fibonacci_strategy import FibonacciStrategy
 from strategies.bollinger_strategy import BollingerStrategy
 from strategies.fractal_strategy import FractalStrategy
+from strategies.resistance_strategy import ResistanceStrategy
 from agents.trading_agents import TradingAgent
 from agents.market_trend_agents import MarketTrendAgent
 from agents.sentiment_agents import SentimentAgent
@@ -27,7 +28,8 @@ strategies = {
     'MACD': MACDStrategy(),
     'Fibonacci': FibonacciStrategy(),
     'Bollinger': BollingerStrategy(),
-    'Fractal': FractalStrategy()
+    'Fractal': FractalStrategy(),
+    'Resistance': ResistanceStrategy()  # Add the new resistance strategy
 }
 
 trading_agents = {
@@ -305,7 +307,6 @@ with tab1:
             st.write("---")
     else:
         st.info("Click 'Analyze Trading Signals' to view resistance analysis")
-
 
     # Supervisor Decision
     st.subheader("Trading Decision")
