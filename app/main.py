@@ -5,7 +5,6 @@ from datetime import datetime, timedelta
 import yfinance as yf
 from concurrent.futures import ThreadPoolExecutor
 from tqdm import tqdm
-
 from db.database import Database
 from data.market_data import MarketData
 from strategies.macd_strategy import MACDStrategy
@@ -18,6 +17,8 @@ from agents.market_trend_agents import MarketTrendAgent
 from agents.sentiment_agents import SentimentAgent
 from agents.supervisor_agent import SupervisorAgent
 from agents.resistance_agent import ResistanceAnalysisAgent
+from agents.recommendation_agent import StrategyRecommendationAgent # Added import
+
 
 # Initialize components
 db = Database()
@@ -47,6 +48,8 @@ sentiment_agents = {
 }
 
 resistance_agent = ResistanceAnalysisAgent() # Added resistance agent initialization
+
+recommendation_agent = StrategyRecommendationAgent() # Added recommendation agent initialization
 
 supervisor = SupervisorAgent()
 
@@ -648,3 +651,85 @@ with tab3:
             """)
     else:
         st.info("No open positions in portfolio")
+
+    st.subheader("Strategy Recommendations")
+    with st.expander("Customize Your Trading Profile", expanded=False):
+        col1, col2 = st.columns(2)
+
+        with col1:
+            risk_tolerance = st.select_slider(
+                "Risk Tolerance",
+                options=['Very Low', 'Low', 'Medium', 'High', 'Very High'],
+                value='Medium'
+            )
+            experience_level = st.select_slider(
+                "Trading Experience",
+                options=['Beginner', 'Intermediate', 'Advanced', 'Expert'],
+                value='Intermediate'
+            )
+
+        with col2:
+            investment_horizon = st.select_slider(
+                "Investment Horizon",
+                options=['Very Short', 'Short', 'Medium', 'Long', 'Very Long'],
+                value='Medium'
+            )
+            initial_capital = st.number_input(
+                "Initial Capital ($)",
+                min_value=1000,
+                value=10000,
+                step=1000
+            )
+
+    if st.button("Generate Strategy Recommendations"):
+        with st.spinner("Analyzing your profile and market conditions..."):
+            # Prepare user profile
+            user_profile = {
+                'risk_tolerance': risk_tolerance,
+                'experience_level': experience_level,
+                'investment_horizon': investment_horizon,
+                'initial_capital': initial_capital
+            }
+
+            # Get market data for analysis
+            symbol = st.session_state.symbol if 'symbol' in st.session_state else 'SPY'
+            market_data = market_data.get_stock_data(symbol)
+
+            # Get trading history from database
+            trading_history = pd.DataFrame(db.get_open_positions())
+
+            # Calculate strategy performance
+            if not trading_history.empty:
+                strategy_performance = recommendation_agent.calculate_strategy_performance(trading_history)
+            else:
+                strategy_performance = {
+                    strategy: {
+                        'win_rate': 'N/A',
+                        'avg_return': 'N/A',
+                        'max_drawdown': 'N/A',
+                        'total_trades': 0
+                    } for strategy in strategies.keys()
+                }
+
+            # Generate recommendations
+            recommendations = recommendation_agent.recommend_strategies(
+                user_profile,
+                market_data,
+                strategy_performance
+            )
+
+            # Display recommendations in a well-formatted way
+            st.markdown("### 📊 Personalized Strategy Recommendations")
+            st.markdown(recommendations['recommendations'])
+            st.markdown(f"*Last updated: {recommendations['timestamp'].strftime('%Y-%m-%d %H:%M')}*")
+
+            # Add a quick-start guide
+            st.markdown("### 🚀 Quick Start Guide")
+            st.markdown("""
+            To implement these recommendations:
+            1. Review the suggested strategy combinations
+            2. Set up your watchlist with suitable stocks
+            3. Configure alerts for entry/exit points
+            4. Start with small position sizes to test the strategies
+            5. Monitor and adjust based on performance
+            """)
