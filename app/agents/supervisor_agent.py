@@ -23,20 +23,25 @@ class SupervisorAgent:
         You are the chief investment officer of an AI-driven hedge fund.
         Your role is to analyze signals from multiple sources and make final trading decisions.
 
-        Consider:
-        1. Trading strategy signals
-        2. Market trend analysis across timeframes
-        3. Sentiment analysis
-        4. Resistance analysis
-        5. Risk management
-        6. Portfolio exposure
+        Consider and weigh the following factors:
+        1. Trading strategy signals from different algorithms (MACD, Bollinger, etc.)
+        2. Market trend analysis across multiple timeframes
+        3. Sentiment analysis from news and social media
+        4. Resistance analysis for potential price barriers
+        5. Risk management implications
+        6. Portfolio exposure considerations
 
-        Provide decisions in the following format:
-        1. Trading action (BUY/SELL/HOLD)
+        Provide a detailed, well-reasoned decision in the following format:
+        1. Trading action (BUY/SELL/HOLD) with clear justification
         2. Confidence level (0-1)
         3. Position size recommendation (%)
         4. Risk assessment (Low/Medium/High)
-        5. Supporting rationale (Brief explanation)
+        5. Supporting rationale including:
+           - Key signals that influenced the decision
+           - Resistance level considerations
+           - Market trend alignment
+           - Sentiment impact
+           - Risk factors to monitor
         """
 
     def _prepare_context(self, trading_signals, market_trends, sentiment_analysis, resistance_analysis=None):
@@ -101,33 +106,48 @@ class SupervisorAgent:
 
     def _parse_decision(self, response):
         lines = response.strip().split('\n')
-        decision_dict = {}
+        decision_dict = {
+            'action': 'HOLD',
+            'confidence': 0.0,
+            'risk': 'Medium',
+            'rationale': [],
+            'position_size': '0%'
+        }
 
-        # Extract key components from response
+        current_section = None
         for line in lines:
-            if 'Trading action' in line.lower():
+            line = line.strip()
+            if not line:
+                continue
+
+            if 'trading action' in line.lower():
                 decision_dict['action'] = line.split(':')[-1].strip()
+                current_section = 'action'
             elif 'confidence' in line.lower():
                 try:
                     confidence = float(line.split(':')[-1].strip())
                     decision_dict['confidence'] = min(1.0, max(0.0, confidence))
                 except:
                     decision_dict['confidence'] = 0.8
-            elif 'risk' in line.lower():
+            elif 'risk' in line.lower() and 'assessment' in line.lower():
                 decision_dict['risk'] = line.split(':')[-1].strip()
-            elif 'rationale' in line.lower() or 'supporting rationale' in line.lower():
-                # Get everything after the colon for rationale
-                decision_dict['rationale'] = ': '.join(line.split(':')[1:]).strip()
+            elif 'position size' in line.lower():
+                decision_dict['position_size'] = line.split(':')[-1].strip()
+            elif 'supporting rationale' in line.lower():
+                current_section = 'rationale'
+            elif current_section == 'rationale':
+                decision_dict['rationale'].append(line)
 
         # Format the final decision text with complete rationale
-        decision_text = (
-            f"{decision_dict.get('action', 'HOLD')} - "
-            f"Risk: {decision_dict.get('risk', 'Medium')}\n"
-            f"Rationale: {decision_dict.get('rationale', 'Insufficient data for strong conviction')}"
-        )
+        decision_text = f"{decision_dict['action']} - Position Size: {decision_dict['position_size']}\n\n"
+        decision_text += f"Risk Level: {decision_dict['risk']}\n\n"
+        decision_text += "Detailed Analysis:\n"
+        for point in decision_dict['rationale']:
+            if point.strip():
+                decision_text += f"• {point}\n"
 
         return {
             'decision': decision_text,
-            'confidence': decision_dict.get('confidence', 0.8),
+            'confidence': decision_dict['confidence'],
             'timestamp': pd.Timestamp.now()
         }

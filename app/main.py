@@ -311,7 +311,24 @@ with tab1:
     # Supervisor Decision
     st.subheader("Trading Decision")
     if st.session_state.decision:
-        st.write(st.session_state.decision['decision'])
+        # Create an expander for detailed trading decision
+        with st.expander("Trading Decision Analysis", expanded=True):
+            st.markdown("### Final Decision")
+            st.write(st.session_state.decision['decision'])
+
+            st.markdown("### Analysis Details")
+            st.write("Based on:")
+            if st.session_state.signals:
+                strategies = [name for name, signal in st.session_state.signals.items() 
+                            if signal.get('buy', False) or signal.get('sell', False)]
+                st.write(f"- Trading Signals: {', '.join(strategies)}")
+
+            if st.session_state.resistance_analysis:
+                resistance_checks = [f"{strategy} ({analysis['recommendation']})" 
+                                  for strategy, analysis in st.session_state.resistance_analysis.items()]
+                st.write(f"- Resistance Analysis: {', '.join(resistance_checks)}")
+
+            st.write(f"Confidence: {st.session_state.decision.get('confidence', 0.0):.2f}")
     else:
         st.info("Click 'Analyze Trading Signals' to view trading decision")
 
