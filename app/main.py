@@ -209,7 +209,7 @@ if 'symbol' not in st.session_state:
     st.session_state.symbol = "AAPL"
 
 # Create tabs
-tab1, tab2 = st.tabs(["Trading Dashboard", "Watchlist"])
+tab1, tab2, tab3 = st.tabs(["Trading Dashboard", "Watchlist", "Portfolio"])
 
 with tab1:
     # Sidebar for symbol selection and controls
@@ -260,7 +260,7 @@ with tab1:
             (st.session_state.signals, 
              st.session_state.trend_analysis, 
              st.session_state.sentiment_analysis,
-             st.session_state.resistance_analysis, #Added for resistance analysis
+             st.session_state.resistance_analysis,
              st.session_state.decision) = analyze_trading_signals(data)
 
     with col2:
@@ -332,25 +332,6 @@ with tab1:
     else:
         st.info("Click 'Analyze Trading Signals' to view trading decision")
 
-    # Portfolio Performance
-    st.subheader("Portfolio Performance")
-    positions = db.get_open_positions()
-    if positions:
-        df = pd.DataFrame(positions)
-        st.dataframe(df)
-
-        # Calculate total P&L
-        current_prices = {
-            pos['symbol']: market_data.get_stock_data(pos['symbol'])['Close'].iloc[-1]
-            for pos in positions
-        }
-
-        total_pnl = sum(
-            (current_prices[pos['symbol']] - pos['entry_price']) * pos['quantity']
-            for pos in positions
-        )
-
-        st.metric("Total P&L", f"${total_pnl:,.2f}")
 
 with tab2:
     st.subheader("Watchlist")
@@ -497,3 +478,49 @@ with tab2:
                 st.error(f"Error fetching data for {stock['symbol']}: {str(e)}")
     else:
         st.info("Your watchlist is empty. Add symbols above.")
+
+with tab3:
+    st.subheader("Portfolio Performance")
+    positions = db.get_open_positions()
+    if positions:
+        # Calculate current prices first so it's available for both sections
+        current_prices = {
+            pos['symbol']: market_data.get_stock_data(pos['symbol'])['Close'].iloc[-1]
+            for pos in positions
+        }
+
+        # Display positions table
+        df = pd.DataFrame(positions)
+        st.dataframe(df)
+
+        # Calculate total P&L
+        total_pnl = sum(
+            (current_prices[pos['symbol']] - pos['entry_price']) * pos['quantity']
+            for pos in positions
+        )
+
+        st.metric("Total P&L", f"${total_pnl:,.2f}")
+
+        # Portfolio Composition
+        st.subheader("Portfolio Composition")
+        composition = pd.DataFrame(positions).groupby('symbol').agg({
+            'quantity': 'sum',
+            'entry_price': 'mean'
+        }).reset_index()
+
+        # Calculate current value for each position
+        composition['current_price'] = composition['symbol'].map(current_prices)
+        composition['current_value'] = composition['quantity'] * composition['current_price']
+        composition['pnl'] = (composition['current_price'] - composition['entry_price']) * composition['quantity']
+        composition['pnl_percent'] = (composition['current_price'] - composition['entry_price']) / composition['entry_price'] * 100
+
+        # Display composition
+        st.dataframe(composition.style.format({
+            'entry_price': '${:.2f}',
+            'current_price': '${:.2f}',
+            'current_value': '${:,.2f}',
+            'pnl': '${:,.2f}',
+            'pnl_percent': '{:.1f}%'
+        }))
+    else:
+        st.info("No open positions in portfolio")
