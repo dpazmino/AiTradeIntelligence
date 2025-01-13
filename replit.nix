@@ -1,6 +1,5 @@
 {pkgs}: {
   deps = [
-    pkgs.mariadb
     pkgs.zlib
     pkgs.xcodebuild
     pkgs.glibcLocales
