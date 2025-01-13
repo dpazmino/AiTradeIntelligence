@@ -1,25 +1,34 @@
 import os
-import mysql.connector
-from mysql.connector import Error
+import psycopg2
+from psycopg2.extras import RealDictCursor
 from datetime import datetime
 
 class Database:
     def __init__(self):
-        self.conn = mysql.connector.connect(
-            host=os.environ.get('DB_HOST', 'localhost'),
-            user=os.environ.get('DB_USER', 'root'),
-            password=os.environ.get('DB_PASSWORD', ''),
-            database=os.environ.get('DB_NAME', 'trading_db')
+        self.conn = psycopg2.connect(
+            host=os.environ['PGHOST'],
+            database=os.environ['PGDATABASE'],
+            user=os.environ['PGUSER'],
+            password=os.environ['PGPASSWORD'],
+            port=os.environ['PGPORT']
         )
         self.create_tables()
 
     def create_tables(self):
         with self.conn.cursor() as cur:
             try:
-                # Create portfolio table
+                # Keep existing sequences
+                cur.execute("""
+                    CREATE SEQUENCE IF NOT EXISTS portfolio_id_seq;
+                    CREATE SEQUENCE IF NOT EXISTS trading_signals_id_seq;
+                    CREATE SEQUENCE IF NOT EXISTS watchlist_stocks_id_seq;
+                    CREATE SEQUENCE IF NOT EXISTS trading_decisions_id_seq;
+                """)
+
+                # Keep existing tables
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS portfolio (
-                        id INTEGER PRIMARY KEY AUTO_INCREMENT,
+                        id INTEGER PRIMARY KEY DEFAULT nextval('portfolio_id_seq'),
                         symbol VARCHAR(10) NOT NULL,
                         quantity INTEGER NOT NULL,
                         entry_price FLOAT NOT NULL,
@@ -30,10 +39,9 @@ class Database:
                     )
                 """)
 
-                # Create trading signals table
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS trading_signals (
-                        id INTEGER PRIMARY KEY AUTO_INCREMENT,
+                        id INTEGER PRIMARY KEY DEFAULT nextval('trading_signals_id_seq'),
                         symbol VARCHAR(10) NOT NULL,
                         signal_type VARCHAR(10) NOT NULL,
                         strategy VARCHAR(50) NOT NULL,
@@ -42,54 +50,46 @@ class Database:
                     )
                 """)
 
-                # Create screened stocks table
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS screened_stocks (
-                        id INTEGER PRIMARY KEY AUTO_INCREMENT,
+                        id SERIAL PRIMARY KEY,
                         symbol VARCHAR(10) NOT NULL,
                         company_name VARCHAR(100),
                         current_price DECIMAL(10, 2) NOT NULL,
                         average_volume BIGINT NOT NULL,
                         last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        UNIQUE KEY unique_symbol (symbol)
+                        UNIQUE(symbol)
                     )
                 """)
 
-                # Create watchlist stocks table
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS watchlist_stocks (
-                        id INTEGER PRIMARY KEY AUTO_INCREMENT,
-                        symbol VARCHAR(10) NOT NULL,
+                        id SERIAL PRIMARY KEY,
+                        symbol VARCHAR(10) NOT NULL UNIQUE,
                         notes TEXT,
-                        added_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        UNIQUE KEY unique_symbol (symbol)
+                        added_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
 
-                # Create trading decisions table
+                # Add new table for trading decisions
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS trading_decisions (
-                        id INTEGER PRIMARY KEY AUTO_INCREMENT,
+                        id SERIAL PRIMARY KEY,
                         symbol VARCHAR(10) NOT NULL,
                         decision TEXT NOT NULL,
                         confidence FLOAT NOT NULL,
                         agent_name VARCHAR(50) NOT NULL DEFAULT 'supervisor',
-                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                        UNIQUE KEY daily_decision (symbol, DATE(created_at), agent_name)
-                    )
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    );
+                    CREATE UNIQUE INDEX IF NOT EXISTS trading_decisions_daily_idx 
+                    ON trading_decisions (symbol, date(created_at));
                 """)
 
                 self.conn.commit()
-            except Error as e:
+            except Exception as e:
                 self.conn.rollback()
                 print(f"Error creating tables: {str(e)}")
                 raise
-
-    def _dict_row(self, cursor, row):
-        """Convert a row tuple into a dictionary"""
-        if row is None:
-            return None
-        return dict(zip([col[0] for col in cursor.description], row))
 
     def add_position(self, symbol, quantity, entry_price, strategy):
         with self.conn.cursor() as cur:
@@ -109,13 +109,12 @@ class Database:
             self.conn.commit()
 
     def get_open_positions(self):
-        with self.conn.cursor() as cur:
+        with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
                 SELECT * FROM portfolio 
                 WHERE exit_date IS NULL
                 """)
-            rows = cur.fetchall()
-            return [self._dict_row(cur, row) for row in rows]
+            return cur.fetchall()
 
     def add_signal(self, symbol, signal_type, strategy, confidence):
         with self.conn.cursor() as cur:
@@ -132,28 +131,28 @@ class Database:
                 INSERT INTO screened_stocks 
                 (symbol, company_name, current_price, average_volume, last_updated)
                 VALUES (%s, %s, %s, %s, %s)
-                ON DUPLICATE KEY UPDATE 
-                    company_name = VALUES(company_name),
-                    current_price = VALUES(current_price),
-                    average_volume = VALUES(average_volume),
-                    last_updated = VALUES(last_updated)
+                ON CONFLICT (symbol) 
+                DO UPDATE SET 
+                    company_name = EXCLUDED.company_name,
+                    current_price = EXCLUDED.current_price,
+                    average_volume = EXCLUDED.average_volume,
+                    last_updated = EXCLUDED.last_updated
                 """, (symbol, company_name, current_price, average_volume, datetime.now()))
             self.conn.commit()
 
     def get_screened_stocks(self):
-        with self.conn.cursor() as cur:
+        with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
                 SELECT * FROM screened_stocks 
                 ORDER BY symbol ASC
                 """)
-            rows = cur.fetchall()
-            return [self._dict_row(cur, row) for row in rows]
+            return cur.fetchall()
 
     def clear_old_screened_stocks(self, hours=24):
         with self.conn.cursor() as cur:
             cur.execute("""
                 DELETE FROM screened_stocks 
-                WHERE last_updated < DATE_SUB(NOW(), INTERVAL %s HOUR)
+                WHERE last_updated < NOW() - INTERVAL '%s hours'
                 """, (hours,))
             self.conn.commit()
 
@@ -162,8 +161,8 @@ class Database:
             cur.execute("""
                 INSERT INTO watchlist_stocks (symbol, notes)
                 VALUES (%s, %s)
-                ON DUPLICATE KEY UPDATE
-                    notes = VALUES(notes),
+                ON CONFLICT (symbol) DO UPDATE SET
+                    notes = EXCLUDED.notes,
                     added_date = CURRENT_TIMESTAMP
                 """, (symbol.upper(), notes))
             self.conn.commit()
@@ -177,13 +176,12 @@ class Database:
             self.conn.commit()
 
     def get_watchlist(self):
-        with self.conn.cursor() as cur:
+        with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
                 SELECT * FROM watchlist_stocks 
                 ORDER BY added_date DESC
                 """)
-            rows = cur.fetchall()
-            return [self._dict_row(cur, row) for row in rows]
+            return cur.fetchall()
 
     def save_trading_decision(self, symbol: str, decision: str, confidence: float, agent_name: str = 'supervisor'):
         """Save a new trading decision for a stock"""
@@ -191,16 +189,12 @@ class Database:
             cur.execute("""
                 INSERT INTO trading_decisions (symbol, decision, confidence, agent_name)
                 VALUES (%s, %s, %s, %s)
-                ON DUPLICATE KEY UPDATE
-                    decision = VALUES(decision),
-                    confidence = VALUES(confidence),
-                    created_at = CURRENT_TIMESTAMP
                 """, (symbol, decision, confidence, agent_name))
             self.conn.commit()
 
     def get_latest_trading_decisions(self, symbol: str, limit: int = 2):
         """Get the latest trading decisions for a stock"""
-        with self.conn.cursor() as cur:
+        with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
                 SELECT decision, confidence, agent_name, created_at
                 FROM trading_decisions
@@ -208,25 +202,26 @@ class Database:
                 ORDER BY created_at DESC
                 LIMIT %s
                 """, (symbol, limit))
-            rows = cur.fetchall()
-            return [self._dict_row(cur, row) for row in rows]
+            return cur.fetchall()
 
     def get_all_agent_decisions(self, symbol: str):
         """Get the latest decision from each agent for a stock"""
-        with self.conn.cursor() as cur:
+        with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
-                SELECT d1.* 
-                FROM trading_decisions d1
-                INNER JOIN (
-                    SELECT agent_name, MAX(created_at) as max_date
+                WITH RankedDecisions AS (
+                    SELECT 
+                        symbol,
+                        decision,
+                        confidence,
+                        agent_name,
+                        created_at,
+                        ROW_NUMBER() OVER (PARTITION BY agent_name ORDER BY created_at DESC) as rn
                     FROM trading_decisions
                     WHERE symbol = %s
-                    GROUP BY agent_name
-                ) d2 
-                ON d1.agent_name = d2.agent_name 
-                AND d1.created_at = d2.max_date
-                WHERE d1.symbol = %s
-                ORDER BY d1.agent_name
-                """, (symbol, symbol))
-            rows = cur.fetchall()
-            return [self._dict_row(cur, row) for row in rows]
+                )
+                SELECT symbol, decision, confidence, agent_name, created_at
+                FROM RankedDecisions
+                WHERE rn = 1
+                ORDER BY agent_name;
+                """, (symbol,))
+            return cur.fetchall()
