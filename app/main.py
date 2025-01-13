@@ -16,6 +16,7 @@ from agents.trading_agents import TradingAgent
 from agents.market_trend_agents import MarketTrendAgent
 from agents.sentiment_agents import SentimentAgent
 from agents.supervisor_agent import SupervisorAgent
+from agents.resistance_agent import ResistanceAnalysisAgent
 
 # Initialize components
 db = Database()
@@ -43,6 +44,8 @@ sentiment_agents = {
     for timeframe in ['30d', '15d', '3d']
 }
 
+resistance_agent = ResistanceAnalysisAgent() # Added resistance agent initialization
+
 supervisor = SupervisorAgent()
 
 def analyze_trading_signals(data):
@@ -62,9 +65,27 @@ def analyze_trading_signals(data):
         for timeframe, agent in sentiment_agents.items()
     }
 
-    decision = supervisor.make_decision(signals, trend_analysis, sentiment_analysis)
+    # Add resistance analysis for each strategy's entry/exit points
+    resistance_analysis = {}
+    for name, signal in signals.items():
+        if signal.get('buy', False):  # Only analyze resistance for buy signals
+            entry_point, exit_point = calculate_trade_points(data)
+            resistance_check = resistance_agent.analyze_resistance(data, entry_point, exit_point)
+            resistance_analysis[name] = resistance_check
+            # Save resistance analysis to database
+            analysis_text = f"{'DO NOT BUY' if resistance_check['recommendation'] == 'DO_NOT_BUY' else 'PROCEED'} - "
+            analysis_text += f"Found {len(resistance_check['resistance_levels'])} resistance levels. "
+            analysis_text += resistance_check['explanation']
+            db.save_trading_decision(
+                st.session_state.symbol,
+                analysis_text,
+                resistance_check['confidence'],
+                f"resistance_{name.lower()}"
+            )
 
-    return signals, trend_analysis, sentiment_analysis, decision
+    decision = supervisor.make_decision(signals, trend_analysis, sentiment_analysis, resistance_analysis)
+
+    return signals, trend_analysis, sentiment_analysis, resistance_analysis, decision
 
 def calculate_trade_points(data):
     """Calculate entry and exit points based on technical indicators"""
@@ -165,6 +186,8 @@ if 'trend_analysis' not in st.session_state:
     st.session_state.trend_analysis = None
 if 'sentiment_analysis' not in st.session_state:
     st.session_state.sentiment_analysis = None
+if 'resistance_analysis' not in st.session_state: #Added for resistance analysis
+    st.session_state.resistance_analysis = None
 if 'decision' not in st.session_state:
     st.session_state.decision = None
 if 'symbol' not in st.session_state:
@@ -222,6 +245,7 @@ with tab1:
             (st.session_state.signals, 
              st.session_state.trend_analysis, 
              st.session_state.sentiment_analysis,
+             st.session_state.resistance_analysis, #Added for resistance analysis
              st.session_state.decision) = analyze_trading_signals(data)
 
     with col2:
@@ -256,6 +280,19 @@ with tab1:
                 st.write(analysis['analysis'])
     else:
         st.info("Click 'Analyze Trading Signals' to view sentiment analysis")
+
+    # Resistance Analysis
+    st.subheader("Resistance Analysis")
+    if st.session_state.resistance_analysis:
+        for strategy, analysis in st.session_state.resistance_analysis.items():
+            st.write(f"**{strategy} Resistance Check**")
+            st.write(analysis['explanation'])
+            st.write(f"Recommendation: {analysis['recommendation']}")
+            st.write(f"Confidence: {analysis['confidence']:.2f}")
+            st.write("---")
+    else:
+        st.info("Click 'Analyze Trading Signals' to view resistance analysis")
+
 
     # Supervisor Decision
     st.subheader("Trading Decision")
@@ -392,6 +429,11 @@ with tab2:
                                 if action == 'BUY':
                                     entry, exit = calculate_trade_points(stock_data)
                                     st.write(f"  ↳ Entry: ${entry} | Exit: ${exit}")
+
+                            elif decision['agent_name'].startswith('resistance_'):
+                                strategy_name = decision['agent_name'].replace('resistance_', '').upper()
+                                st.write(f"🎯 {strategy_name} Resistance Check:")
+                                st.write(f"  ↳ {decision['decision']}")
 
                         # Display supervisor decision prominently
                         st.write("---")

@@ -6,9 +6,9 @@ class SupervisorAgent:
     def __init__(self, model="gpt-4"):
         self.chat_model = ChatOpenAI(model=model)
 
-    def make_decision(self, trading_signals, market_trends, sentiment_analysis):
+    def make_decision(self, trading_signals, market_trends, sentiment_analysis, resistance_analysis=None):
         system_prompt = self._get_system_prompt()
-        context = self._prepare_context(trading_signals, market_trends, sentiment_analysis)
+        context = self._prepare_context(trading_signals, market_trends, sentiment_analysis, resistance_analysis)
 
         messages = [
             SystemMessage(content=system_prompt),
@@ -27,8 +27,9 @@ class SupervisorAgent:
         1. Trading strategy signals
         2. Market trend analysis across timeframes
         3. Sentiment analysis
-        4. Risk management
-        5. Portfolio exposure
+        4. Resistance analysis
+        5. Risk management
+        6. Portfolio exposure
 
         Provide decisions in the following format:
         1. Trading action (BUY/SELL/HOLD)
@@ -38,8 +39,8 @@ class SupervisorAgent:
         5. Supporting rationale (Brief explanation)
         """
 
-    def _prepare_context(self, trading_signals, market_trends, sentiment_analysis):
-        return f"""
+    def _prepare_context(self, trading_signals, market_trends, sentiment_analysis, resistance_analysis=None):
+        context = f"""
         Trading Signals Summary:
         {self._format_trading_signals(trading_signals)}
 
@@ -48,9 +49,13 @@ class SupervisorAgent:
 
         Sentiment Analysis:
         {self._format_sentiment(sentiment_analysis)}
-
-        Please provide a comprehensive trading decision based on this information.
         """
+
+        if resistance_analysis:
+            context += f"\nResistance Analysis:\n{self._format_resistance(resistance_analysis)}"
+
+        context += "\nPlease provide a comprehensive trading decision based on this information."
+        return context
 
     def _format_trading_signals(self, signals):
         formatted_signals = []
@@ -81,6 +86,18 @@ class SupervisorAgent:
                 f"Analysis: {analysis.get('analysis', 'No analysis available')}\n"
             )
         return "\n".join(formatted_sentiment)
+
+    def _format_resistance(self, resistance_analysis):
+        formatted_resistance = []
+        for strategy, analysis in resistance_analysis.items():
+            formatted_resistance.append(
+                f"Strategy: {strategy}\n"
+                f"Recommendation: {analysis['recommendation']}\n"
+                f"Resistance Levels: {', '.join(f'${level:.2f}' for level in analysis['resistance_levels'])}\n"
+                f"Confidence: {analysis['confidence']:.2f}\n"
+                f"Explanation: {analysis['explanation']}\n"
+            )
+        return "\n".join(formatted_resistance)
 
     def _parse_decision(self, response):
         lines = response.strip().split('\n')
