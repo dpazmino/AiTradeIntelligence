@@ -67,24 +67,36 @@ def analyze_trading_signals(data):
 
     # Add resistance analysis for each strategy's entry/exit points
     resistance_analysis = {}
-    for name, signal in signals.items():
-        if signal.get('buy', False):  # Only analyze resistance for buy signals
-            entry_point, exit_point = calculate_trade_points(data)
-            resistance_check = resistance_agent.analyze_resistance(data, entry_point, exit_point)
-            resistance_analysis[name] = resistance_check
-            # Save resistance analysis to database
-            analysis_text = f"{'DO NOT BUY' if resistance_check['recommendation'] == 'DO_NOT_BUY' else 'PROCEED'} - "
-            analysis_text += f"Found {len(resistance_check['resistance_levels'])} resistance levels. "
-            analysis_text += resistance_check['explanation']
-            db.save_trading_decision(
-                st.session_state.symbol,
-                analysis_text,
-                resistance_check['confidence'],
-                f"resistance_{name.lower()}"
-            )
+    try:
+        for name, signal in signals.items():
+            if signal.get('buy', False):  # Only analyze resistance for buy signals
+                try:
+                    entry_point, exit_point = calculate_trade_points(data)
+                    print(f"Analyzing resistance for {name} - Entry: ${entry_point:.2f}, Exit: ${exit_point:.2f}")
+
+                    resistance_check = resistance_agent.analyze_resistance(data, entry_point, exit_point)
+                    resistance_analysis[name] = resistance_check
+
+                    # Save resistance analysis to database
+                    analysis_text = f"{'DO NOT BUY' if resistance_check['recommendation'] == 'DO_NOT_BUY' else 'PROCEED'} - "
+                    analysis_text += f"Found {len(resistance_check['resistance_levels'])} resistance levels. "
+                    analysis_text += resistance_check['explanation']
+
+                    db.save_trading_decision(
+                        st.session_state.symbol,
+                        analysis_text,
+                        resistance_check['confidence'],
+                        f"resistance_{name.lower()}"
+                    )
+                    print(f"Completed resistance analysis for {name}")
+                except Exception as e:
+                    print(f"Error in resistance analysis for {name}: {str(e)}")
+                    st.error(f"Error in resistance analysis for {name}: {str(e)}")
+    except Exception as e:
+        print(f"Error in resistance analysis block: {str(e)}")
+        st.error(f"Error in resistance analysis block: {str(e)}")
 
     decision = supervisor.make_decision(signals, trend_analysis, sentiment_analysis, resistance_analysis)
-
     return signals, trend_analysis, sentiment_analysis, resistance_analysis, decision
 
 def calculate_trade_points(data):
@@ -96,10 +108,11 @@ def calculate_trade_points(data):
     lower_band = data['Lower_Band'].iloc[-1]
 
     # Calculate entry point (near support) and exit point (near resistance)
-    entry_point = round(lower_band + (current_price - lower_band) * 0.1, 2)  # 10% above support
-    exit_point = round(upper_band - (upper_band - current_price) * 0.1, 2)   # 10% below resistance
+    band_range = upper_band - lower_band
+    entry_point = current_price - (band_range * 0.1)  # 10% below current price
+    exit_point = current_price + (band_range * 0.2)   # 20% above current price
 
-    return entry_point, exit_point
+    return round(entry_point, 2), round(exit_point, 2)
 
 def get_agent_decisions(symbol, data):
     """Get individual trading agent decisions"""
