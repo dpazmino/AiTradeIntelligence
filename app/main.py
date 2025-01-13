@@ -349,6 +349,9 @@ with tab2:
                     with st.expander(f"Analyzing {stock['symbol']}", expanded=True):
                         st.write(f"🔄 Processing {stock['symbol']}...")
 
+                        # Get previous decisions before updating
+                        previous_decisions = db.get_all_agent_decisions(stock['symbol'])
+
                         stock_data = market_data.get_stock_data(stock['symbol'], period='5d')
                         if not stock_data.empty and len(stock_data) >= 2:
                             stock_data = market_data.calculate_technical_indicators(stock_data)
@@ -430,36 +433,45 @@ with tab2:
                         st.write(f"Volume: {volume:,.0f}")
 
                     with col3:
-                        st.write("**Agent Decisions:**")
-                        for decision in agent_decisions:
-                            if decision['agent_name'].startswith('strategy_'):
-                                strategy_name = decision['agent_name'].replace('strategy_', '').upper()
-                                action = extract_trading_action(decision['decision'])
-                                st.write(f"{strategy_name}: {action} (conf: {decision['confidence']:.2f})")
+                        st.write("**Agent Decisions Comparison:**")
+                        # Create a DataFrame for agent decisions
+                        decisions_df = pd.DataFrame(columns=['Agent', 'Previous Decision', 'Current Decision'])
 
-                                # Show entry/exit points for buy signals
-                                if action == 'BUY':
-                                    entry, exit = calculate_trade_points(stock_data)
-                                    st.write(f"  ↳ Entry: ${entry} | Exit: ${exit}")
+                        # Get the two most recent decisions for each agent
+                        for agent_name in set(d['agent_name'] for d in agent_decisions):
+                            agent_specific_decisions = [d for d in agent_decisions if d['agent_name'] == agent_name]
+                            agent_specific_decisions.sort(key=lambda x: x['created_at'], reverse=True)
 
-                            elif decision['agent_name'].startswith('resistance_'):
-                                strategy_name = decision['agent_name'].replace('resistance_', '').upper()
-                                st.write(f"🎯 {strategy_name} Resistance Check:")
-                                st.write(f"  ↳ {decision['decision']}")
+                            current_decision = agent_specific_decisions[0] if agent_specific_decisions else None
+                            previous_decision = agent_specific_decisions[1] if len(agent_specific_decisions) > 1 else None
 
-                        # Display supervisor decision prominently
-                        st.write("---")
-                        st.write("**📊 Supervisor's Final Decision:**")
+                            # Format the decision text
+                            current_text = f"{extract_trading_action(current_decision['decision'])} ({current_decision['confidence']:.2f})" if current_decision else "N/A"
+                            previous_text = f"{extract_trading_action(previous_decision['decision'])} ({previous_decision['confidence']:.2f})" if previous_decision else "N/A"
+
+                            # Add to DataFrame
+                            decisions_df.loc[len(decisions_df)] = [
+                                agent_name.replace('strategy_', '').replace('resistance_', '🎯 ').upper(),
+                                previous_text,
+                                current_text
+                            ]
+
+                        # Display the decisions comparison table
+                        st.dataframe(decisions_df, hide_index=True)
+
+                        # Display entry/exit points for supervisor's final decision
                         supervisor_decisions = [d for d in agent_decisions if d['agent_name'] == 'supervisor']
                         if supervisor_decisions:
                             current = supervisor_decisions[0]
                             action = extract_trading_action(current['decision'])
+
+                            st.write("---")
+                            st.write("**📊 Final Trading Decision:**")
                             st.write(f"Decision: {action}")
                             st.write(f"Analysis: {current['decision']}")
                             st.write(f"Confidence: {current['confidence']:.2f}")
                             st.write(f"As of: {current['created_at'].strftime('%Y-%m-%d %H:%M')}")
 
-                            # Show entry/exit points for supervisor's buy signals
                             if action == 'BUY':
                                 entry, exit = calculate_trade_points(stock_data)
                                 st.write(f"Recommended Entry: ${entry}")
