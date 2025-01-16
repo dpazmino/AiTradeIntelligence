@@ -451,27 +451,42 @@ with tab2:
                         # Create a DataFrame for agent decisions
                         decisions_df = pd.DataFrame(columns=['Agent', 'Previous Decision', 'Current Decision', 'Changed'])
 
-                        # Get the two most recent decisions for each agent
-                        recent_decisions = db.get_latest_trading_decisions(stock['symbol'], 2)
+                        # Get all agent decisions
+                        agent_decisions = db.get_all_agent_decisions(stock['symbol'])
 
-                        if len(recent_decisions) > 0:
-                            current_decision = recent_decisions[0]
-                            previous_decision = recent_decisions[1] if len(recent_decisions) > 1 else None
+                        # Group decisions by agent
+                        for agent_name in set(d['agent_name'] for d in agent_decisions):
+                            # Get the two most recent decisions for this agent
+                            agent_recent_decisions = db.get_latest_trading_decisions(stock['symbol'], 2)
+                            agent_recent_decisions = [d for d in agent_recent_decisions if d['agent_name'] == agent_name]
 
-                            # Format the decision text
-                            current_text = f"{extract_trading_action(current_decision['decision'])} ({current_decision['confidence']:.2f})"
-                            previous_text = f"{extract_trading_action(previous_decision['decision'])} ({previous_decision['confidence']:.2f})" if previous_decision else "N/A"
+                            if agent_recent_decisions:
+                                current_decision = agent_recent_decisions[0]
+                                previous_decision = agent_recent_decisions[1] if len(agent_recent_decisions) > 1 else None
 
-                            # Check if decision changed
-                            changed = "↔️" if not previous_decision else "🔄" if extract_trading_action(current_decision['decision']) != extract_trading_action(previous_decision['decision']) else "="
+                                # Format the decision text
+                                current_text = f"{extract_trading_action(current_decision['decision'])} ({current_decision['confidence']:.2f})"
+                                previous_text = f"{extract_trading_action(previous_decision['decision'])} ({previous_decision['confidence']:.2f})" if previous_decision else "N/A"
 
-                            # Add to DataFrame
-                            decisions_df.loc[len(decisions_df)] = [
-                                'Supervisor',
-                                previous_text,
-                                current_text,
-                                changed
-                            ]
+                                # Check if decision changed
+                                changed = "↔️" if not previous_decision else "🔄" if extract_trading_action(current_decision['decision']) != extract_trading_action(previous_decision['decision']) else "="
+
+                                # Format agent name for display
+                                display_name = agent_name.replace('strategy_', '').replace('resistance_', '🎯 ').title()
+                                if agent_name == 'supervisor':
+                                    display_name = '👨‍💼 Supervisor'
+
+                                # Add to DataFrame
+                                decisions_df.loc[len(decisions_df)] = [
+                                    display_name,
+                                    previous_text,
+                                    current_text,
+                                    changed
+                                ]
+
+                        # Sort DataFrame to show supervisor first, then other agents
+                        decisions_df['sort_order'] = decisions_df['Agent'].apply(lambda x: 0 if 'Supervisor' in x else 1)
+                        decisions_df = decisions_df.sort_values('sort_order').drop('sort_order', axis=1)
 
                         # Display the decisions comparison table with changed indicator
                         st.dataframe(decisions_df, hide_index=True)
