@@ -110,18 +110,28 @@ def analyze_trading_signals(data):
 
 def calculate_trade_points(data):
     """Calculate entry and exit points based on technical indicators"""
-    current_price = data['Close'].iloc[-1]
+    try:
+        # Ensure technical indicators are calculated
+        if 'Upper_Band' not in data.columns:
+            data = market_data.calculate_technical_indicators(data)
 
-    # Use Bollinger Bands for support/resistance levels
-    upper_band = data['Upper_Band'].iloc[-1]
-    lower_band = data['Lower_Band'].iloc[-1]
+        current_price = data['Close'].iloc[-1]
+        upper_band = data['Upper_Band'].iloc[-1]
+        lower_band = data['Lower_Band'].iloc[-1]
 
-    # Calculate entry point (near support) and exit point (near resistance)
-    band_range = upper_band - lower_band
-    entry_point = current_price - (band_range * 0.1)  # 10% below current price
-    exit_point = current_price + (band_range * 0.2)   # 20% above current price
+        # Calculate entry point (near support) and exit point (near resistance)
+        band_range = upper_band - lower_band
+        entry_point = current_price - (band_range * 0.1)  # 10% below current price
+        exit_point = current_price + (band_range * 0.2)   # 20% above current price
 
-    return round(entry_point, 2), round(exit_point, 2)
+        return round(entry_point, 2), round(exit_point, 2)
+    except Exception as e:
+        print(f"Error calculating trade points: {str(e)}")
+        # Return current price with default margins if calculation fails
+        current_price = data['Close'].iloc[-1]
+        entry_point = current_price * 0.95  # 5% below current price
+        exit_point = current_price * 1.1    # 10% above current price
+        return round(entry_point, 2), round(exit_point, 2)
 
 def get_agent_decisions(symbol, data):
     """Get individual trading agent decisions"""
@@ -151,62 +161,68 @@ def analyze_watchlist_stock(symbol, data):
     """Analyze a single watchlist stock using our AI agents"""
     signals = {}
 
-    # Calculate entry and exit points
-    entry_point, exit_point = calculate_trade_points(data)
+    try:
+        # Ensure technical indicators are calculated
+        data = market_data.calculate_technical_indicators(data)
 
-    # Create a placeholder for progress
-    progress_placeholder = st.empty()
+        # Calculate entry and exit points
+        entry_point, exit_point = calculate_trade_points(data)
 
-    # Show trading agents analysis progress
-    progress_placeholder.write("🤖 Trading Agents Analysis:")
-    for name, agent in trading_agents.items():
-        progress_placeholder.write(f"  ↳ {name} Strategy Agent analyzing {symbol}...")
-        signals[name] = agent.analyze(data)
-        # Save each agent's decision
-        action = 'BUY' if signals[name].get('buy', False) else 'SELL' if signals[name].get('sell', False) else 'HOLD'
-        db.save_trading_decision(symbol, action, signals[name].get('confidence', 0.0), f"strategy_{name.lower()}")
+        # Create a placeholder for progress
+        progress_placeholder = st.empty()
 
-        # Update watchlist with entry/exit points if it's a buy signal
-        if signals[name].get('buy', False):
-            db.add_to_watchlist(symbol, entry_price=entry_point, exit_price=exit_point)
-            db.update_watchlist_signal(symbol, 'BUY')
-        elif signals[name].get('sell', False):
-            db.update_watchlist_signal(symbol, 'SELL')
+        # Show trading agents analysis progress
+        progress_placeholder.write("🤖 Trading Agents Analysis:")
+        for name, agent in trading_agents.items():
+            progress_placeholder.write(f"  ↳ {name} Strategy Agent analyzing {symbol}...")
+            signals[name] = agent.analyze(data)
+            # Save each agent's decision
+            action = 'BUY' if signals[name].get('buy', False) else 'SELL' if signals[name].get('sell', False) else 'HOLD'
+            db.save_trading_decision(symbol, action, signals[name].get('confidence', 0.0), f"strategy_{name.lower()}")
 
-    # Show market trend analysis progress
-    progress_placeholder.write("📈 Market Trend Analysis:")
-    trend_analysis = {}
-    for timeframe, agent in market_trend_agents.items():
-        progress_placeholder.write(f"  ↳ {timeframe} Trend Agent analyzing market conditions...")
-        trend_analysis[timeframe] = agent.analyze_trend(data)
-        # Save trend analysis
-        db.save_trading_decision(symbol, trend_analysis[timeframe]['analysis'], 
-                                   0.8, f"trend_{timeframe}")
+            # Update watchlist with entry/exit points if it's a buy signal
+            if signals[name].get('buy', False):
+                db.add_to_watchlist(symbol, entry_price=entry_point, exit_price=exit_point)
+                db.update_watchlist_signal(symbol, 'BUY')
+            elif signals[name].get('sell', False):
+                db.update_watchlist_signal(symbol, 'SELL')
 
-    # Show sentiment analysis progress
-    progress_placeholder.write("📰 Sentiment Analysis:")
-    sentiment_analysis = {}
-    for timeframe, agent in sentiment_agents.items():
-        progress_placeholder.write(f"  ↳ {timeframe} Sentiment Agent analyzing news and social media...")
-        sentiment_analysis[timeframe] = agent.analyze_sentiment(symbol)
-        # Save sentiment analysis
-        db.save_trading_decision(symbol, sentiment_analysis[timeframe]['analysis'], 
-                                   0.7, f"sentiment_{timeframe}")
+        # Show market trend analysis progress
+        progress_placeholder.write("📈 Market Trend Analysis:")
+        trend_analysis = {}
+        for timeframe, agent in market_trend_agents.items():
+            progress_placeholder.write(f"  ↳ {timeframe} Trend Agent analyzing market conditions...")
+            trend_analysis[timeframe] = agent.analyze_trend(data)
+            # Save trend analysis
+            db.save_trading_decision(symbol, trend_analysis[timeframe]['analysis'], 
+                                       0.8, f"trend_{timeframe}")
 
-    # Show supervisor decision making
-    progress_placeholder.write("🎯 Supervisor Agent making final decision...")
-    decision = supervisor.make_decision(signals, trend_analysis, sentiment_analysis)
+        # Show sentiment analysis progress
+        progress_placeholder.write("📰 Sentiment Analysis:")
+        sentiment_analysis = {}
+        for timeframe, agent in sentiment_agents.items():
+            progress_placeholder.write(f"  ↳ {timeframe} Sentiment Agent analyzing news and social media...")
+            sentiment_analysis[timeframe] = agent.analyze_sentiment(symbol)
+            # Save sentiment analysis
+            db.save_trading_decision(symbol, sentiment_analysis[timeframe]['analysis'], 
+                                       0.7, f"sentiment_{timeframe}")
 
-    # Save supervisor decision with explicit decision text
-    supervisor_action = extract_trading_action(decision['decision'])
-    supervisor_decision = f"{supervisor_action} - {decision['decision'][:100]}..."  # Include first 100 chars of analysis
-    db.save_trading_decision(symbol, supervisor_decision, 0.9, 'supervisor')
+        # Show supervisor decision making
+        progress_placeholder.write("🎯 Supervisor Agent making final decision...")
+        decision = supervisor.make_decision(signals, trend_analysis, sentiment_analysis)
 
-    # Clear the progress display
-    progress_placeholder.empty()
+        # Save supervisor decision with explicit decision text
+        supervisor_action = extract_trading_action(decision['decision'])
+        supervisor_decision = f"{supervisor_action} - {decision['decision'][:100]}..."  # Include first 100 chars of analysis
+        db.save_trading_decision(symbol, supervisor_decision, 0.9, 'supervisor')
 
-    return supervisor_decision, 0.9
+        # Clear the progress display
+        progress_placeholder.empty()
 
+        return supervisor_decision, 0.9
+    except Exception as e:
+        st.error(f"Error analyzing {symbol}: {str(e)}")
+        return "HOLD - Analysis Error", 0.0
 
 # Streamlit UI
 st.title("AI Hedge Fund Dashboard")
