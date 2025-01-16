@@ -353,107 +353,81 @@ with tab1:
 with tab2:
     st.subheader("Watchlist")
 
-    # Add update recommendations button
-    if st.button("Update All Trading Recommendations"):
-        with st.spinner("Updating trading recommendations..."):
-            # Add a progress bar for overall progress
-            progress_bar = st.progress(0)
-            watchlist = db.get_watchlist()
-
-            for i, stock in enumerate(watchlist):
-                try:
-                    # Create an expander for each stock's analysis process
-                    with st.expander(f"Analyzing {stock['symbol']}", expanded=True):
-                        st.write(f"🔄 Processing {stock['symbol']}...")
-
-                        # Get previous decisions before updating
-                        previous_decisions = db.get_all_agent_decisions(stock['symbol'])
-
-                        stock_data = market_data.get_stock_data(stock['symbol'], period='5d')
-                        if not stock_data.empty and len(stock_data) >= 2:
-                            stock_data = market_data.calculate_technical_indicators(stock_data)
-                            decision_text, confidence = analyze_watchlist_stock(stock['symbol'], stock_data)
-                            db.save_trading_decision(stock['symbol'], decision_text, confidence)
-                            st.write(f"✅ Analysis completed for {stock['symbol']}")
-                        else:
-                            st.error(f"Insufficient data for {stock['symbol']}")
-
-                    # Update progress bar
-                    progress = (i + 1) / len(watchlist)
-                    progress_bar.progress(progress)
-
-                except Exception as e:
-                    st.error(f"Error updating recommendations for {stock['symbol']}: {str(e)}")
-
-            progress_bar.empty()  # Clear the progress bar
-            st.success("Trading recommendations updated!")
-
     # Add stock to watchlist
     new_symbol = st.text_input("Enter Stock Symbol").upper()
     notes = st.text_area("Notes (optional)", height=100)
 
     if st.button("Add to Watchlist") and new_symbol:
         try:
-            # Get current stock data
-            stock_data = market_data.get_stock_data(new_symbol)
-            if not stock_data.empty:
-                current_price = stock_data['Close'].iloc[-1]
-                avg_volume = stock_data['Volume'].mean()
-
-                # Get company name
-                ticker = yf.Ticker(new_symbol)
-                company_name = ticker.info.get('longName', new_symbol)
-
-                # Save to watchlist
-                db.add_to_watchlist(new_symbol, notes)
-                # Update screened stocks table
-                db.upsert_screened_stock(new_symbol, company_name, current_price, avg_volume)
-                st.success(f"Added {new_symbol} to watchlist")
-            else:
-                st.error(f"Could not fetch data for {new_symbol}")
+            db.add_to_watchlist(new_symbol, notes)
+            st.success(f"Added {new_symbol} to watchlist")
+            st.experimental_rerun()
         except Exception as e:
             st.error(f"Error adding {new_symbol} to watchlist: {str(e)}")
 
-    # Display watchlist with current data and trading decisions
-    watchlist = db.get_watchlist()
-    if watchlist:
-        st.write("Your Watchlist:")
-        # Create a DataFrame for better table display
-        watchlist_df = pd.DataFrame(watchlist)
-        if not watchlist_df.empty:
-            # Format the DataFrame for display
-            display_df = watchlist_df[['symbol', 'notes', 'entry_price', 'exit_price', 'last_signal_type', 'added_date']]
-            display_df = display_df.rename(columns={
-                'symbol': 'Symbol',
-                'notes': 'Notes',
-                'entry_price': 'Entry Price',
-                'exit_price': 'Exit Price',
-                'last_signal_type': 'Signal',
-                'added_date': 'Added Date'
-            })
+    # Display watchlist
+    def display_watchlist():
+        watchlist = db.get_watchlist()
+        if watchlist:
+            st.write("Your Watchlist:")
 
-            # Format prices to show as currency
-            display_df['Entry Price'] = display_df['Entry Price'].apply(lambda x: f"${float(x):.2f}" if pd.notnull(x) else "")
-            display_df['Exit Price'] = display_df['Exit Price'].apply(lambda x: f"${float(x):.2f}" if pd.notnull(x) else "")
+            # Create a DataFrame for better table display
+            watchlist_df = pd.DataFrame(watchlist)
+            if not watchlist_df.empty:
+                # Define the columns we want to display, checking if they exist
+                display_columns = ['symbol']
+                column_renames = {'symbol': 'Symbol'}
 
-            # Format dates
-            display_df['Added Date'] = pd.to_datetime(display_df['Added Date']).dt.strftime('%Y-%m-%d %H:%M')
+                # Add optional columns if they exist in the DataFrame
+                optional_columns = {
+                    'notes': 'Notes',
+                    'entry_price': 'Entry Price',
+                    'exit_price': 'Exit Price',
+                    'last_signal_type': 'Signal',
+                    'added_date': 'Added Date'
+                }
 
-            # Apply color to signals
-            def color_signal(val):
-                if pd.isna(val):
-                    return ''
-                color = 'green' if val == 'BUY' else 'red' if val == 'SELL' else 'black'
-                return f'color: {color}'
+                for col, new_name in optional_columns.items():
+                    if col in watchlist_df.columns:
+                        display_columns.append(col)
+                        column_renames[col] = new_name
 
-            # Display the styled DataFrame
-            st.dataframe(
-                display_df.style.applymap(color_signal, subset=['Signal']),
-                hide_index=True
-            )
+                # Select and rename columns
+                display_df = watchlist_df[display_columns].rename(columns=column_renames)
 
-    else:
-        st.info("Your watchlist is empty. Add symbols above.")
+                # Format prices if they exist
+                if 'Entry Price' in display_df.columns:
+                    display_df['Entry Price'] = display_df['Entry Price'].apply(
+                        lambda x: f"${float(x):.2f}" if pd.notnull(x) else ""
+                    )
+                if 'Exit Price' in display_df.columns:
+                    display_df['Exit Price'] = display_df['Exit Price'].apply(
+                        lambda x: f"${float(x):.2f}" if pd.notnull(x) else ""
+                    )
+
+                # Format dates if they exist
+                if 'Added Date' in display_df.columns:
+                    display_df['Added Date'] = pd.to_datetime(
+                        display_df['Added Date']
+                    ).dt.strftime('%Y-%m-%d %H:%M')
+
+                # Apply color to signals if they exist
+                def color_signal(val):
+                    if pd.isna(val):
+                        return ''
+                    color = 'green' if val == 'BUY' else 'red' if val == 'SELL' else 'black'
+                    return f'color: {color}'
+
+                # Create the style object
+                style = display_df.style
+                if 'Signal' in display_df.columns:
+                    style = style.applymap(color_signal, subset=['Signal'])
+
+                # Display the styled DataFrame
+                st.dataframe(style, hide_index=True)
+        else:
+            st.info("Your watchlist is empty. Add symbols above.")
+    display_watchlist()
 
 
 with tab3:
