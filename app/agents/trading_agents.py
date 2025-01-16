@@ -1,6 +1,6 @@
-import autogen
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
+import pandas as pd
 
 class TradingAgent:
     def __init__(self, strategy, model="gpt-4"):
