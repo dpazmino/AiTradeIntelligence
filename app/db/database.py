@@ -17,41 +17,6 @@ class Database:
     def create_tables(self):
         with self.conn.cursor() as cur:
             try:
-                # Add the new columns to watchlist_stocks if they don't exist
-                cur.execute("""
-                    DO $$ 
-                    BEGIN
-                        BEGIN
-                            ALTER TABLE watchlist_stocks 
-                            ADD COLUMN entry_price DECIMAL(10, 2);
-                        EXCEPTION
-                            WHEN duplicate_column THEN NULL;
-                        END;
-
-                        BEGIN
-                            ALTER TABLE watchlist_stocks 
-                            ADD COLUMN exit_price DECIMAL(10, 2);
-                        EXCEPTION
-                            WHEN duplicate_column THEN NULL;
-                        END;
-
-                        BEGIN
-                            ALTER TABLE watchlist_stocks 
-                            ADD COLUMN last_signal_type VARCHAR(10);
-                        EXCEPTION
-                            WHEN duplicate_column THEN NULL;
-                        END;
-
-                        BEGIN
-                            ALTER TABLE watchlist_stocks 
-                            ADD COLUMN signal_timestamp TIMESTAMP;
-                        EXCEPTION
-                            WHEN duplicate_column THEN NULL;
-                        END;
-                    END $$;
-                """)
-                self.conn.commit()
-
                 # Keep existing sequences
                 cur.execute("""
                     CREATE SEQUENCE IF NOT EXISTS portfolio_id_seq;
@@ -97,6 +62,7 @@ class Database:
                     )
                 """)
 
+                # Update watchlist_stocks table to include entry and exit prices
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS watchlist_stocks (
                         id SERIAL PRIMARY KEY,
@@ -110,6 +76,7 @@ class Database:
                     )
                 """)
 
+                # Add new table for trading decisions
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS trading_decisions (
                         id SERIAL PRIMARY KEY,

@@ -353,81 +353,165 @@ with tab1:
 with tab2:
     st.subheader("Watchlist")
 
+    # Add update recommendations button
+    if st.button("Update All Trading Recommendations"):
+        with st.spinner("Updating trading recommendations..."):
+            # Add a progress bar for overall progress
+            progress_bar = st.progress(0)
+            watchlist = db.get_watchlist()
+
+            for i, stock in enumerate(watchlist):
+                try:
+                    # Create an expander for each stock's analysis process
+                    with st.expander(f"Analyzing {stock['symbol']}", expanded=True):
+                        st.write(f"🔄 Processing {stock['symbol']}...")
+
+                        # Get previous decisions before updating
+                        previous_decisions = db.get_all_agent_decisions(stock['symbol'])
+
+                        stock_data = market_data.get_stock_data(stock['symbol'], period='5d')
+                        if not stock_data.empty and len(stock_data) >= 2:
+                            stock_data = market_data.calculate_technical_indicators(stock_data)
+                            decision_text, confidence = analyze_watchlist_stock(stock['symbol'], stock_data)
+                            db.save_trading_decision(stock['symbol'], decision_text, confidence)
+                            st.write(f"✅ Analysis completed for {stock['symbol']}")
+                        else:
+                            st.error(f"Insufficient data for {stock['symbol']}")
+
+                    # Update progress bar
+                    progress = (i + 1) / len(watchlist)
+                    progress_bar.progress(progress)
+
+                except Exception as e:
+                    st.error(f"Error updating recommendations for {stock['symbol']}: {str(e)}")
+
+            progress_bar.empty()  # Clear the progress bar
+            st.success("Trading recommendations updated!")
+
     # Add stock to watchlist
     new_symbol = st.text_input("Enter Stock Symbol").upper()
     notes = st.text_area("Notes (optional)", height=100)
 
     if st.button("Add to Watchlist") and new_symbol:
         try:
-            db.add_to_watchlist(new_symbol, notes)
-            st.success(f"Added {new_symbol} to watchlist")
-            st.experimental_rerun()
+            # Get current stock data
+            stock_data = market_data.get_stock_data(new_symbol)
+            if not stock_data.empty:
+                current_price = stock_data['Close'].iloc[-1]
+                avg_volume = stock_data['Volume'].mean()
+
+                # Get company name
+                ticker = yf.Ticker(new_symbol)
+                company_name = ticker.info.get('longName', new_symbol)
+
+                # Save to watchlist
+                db.add_to_watchlist(new_symbol, notes)
+                # Update screened stocks table
+                db.upsert_screened_stock(new_symbol, company_name, current_price, avg_volume)
+                st.success(f"Added {new_symbol} to watchlist")
+            else:
+                st.error(f"Could not fetch data for {new_symbol}")
         except Exception as e:
             st.error(f"Error adding {new_symbol} to watchlist: {str(e)}")
 
-    # Display watchlist
-    def display_watchlist():
-        watchlist = db.get_watchlist()
-        if watchlist:
-            st.write("Your Watchlist:")
+    # Display watchlist with current data and trading decisions
+    watchlist = db.get_watchlist()
+    if watchlist:
+        st.write("Your Watchlist:")
+        for stock in watchlist:
+            try:
+                # Get current stock data (using 5d to ensure we have enough data)
+                stock_data = market_data.get_stock_data(stock['symbol'], period='5d')
+                if not stock_data.empty and len(stock_data) >= 2:
+                    today_price = stock_data['Close'].iloc[-1]
+                    yesterday_price = stock_data['Close'].iloc[-2]
+                    price_change = today_price - yesterday_price
+                    price_change_pct = (price_change / yesterday_price) * 100
+                    volume = stock_data['Volume'].iloc[-1]
 
-            # Create a DataFrame for better table display
-            watchlist_df = pd.DataFrame(watchlist)
-            if not watchlist_df.empty:
-                # Define the columns we want to display, checking if they exist
-                display_columns = ['symbol']
-                column_renames = {'symbol': 'Symbol'}
+                    # Display stock info in columns
+                    col1, col2, col3 = st.columns([2, 2, 3])
 
-                # Add optional columns if they exist in the DataFrame
-                optional_columns = {
-                    'notes': 'Notes',
-                    'entry_price': 'Entry Price',
-                    'exit_price': 'Exit Price',
-                    'last_signal_type': 'Signal',
-                    'added_date': 'Added Date'
-                }
+                    with col1:
+                        st.write(f"**{stock['symbol']}**")
+                        if stock['notes']:
+                            st.write(stock['notes'])
 
-                for col, new_name in optional_columns.items():
-                    if col in watchlist_df.columns:
-                        display_columns.append(col)
-                        column_renames[col] = new_name
+                    with col2:
+                        st.write(f"Price: ${today_price:.2f}")
+                        color = "green" if price_change >= 0 else "red"
+                        st.markdown(f"Change: <span style='color:{color}'>${price_change:.2f} ({price_change_pct:.1f}%)</span>", unsafe_allow_html=True)
+                        st.write(f"Volume: {volume:,.0f}")
 
-                # Select and rename columns
-                display_df = watchlist_df[display_columns].rename(columns=column_renames)
+                        # Add entry/exit points display
+                        if stock['entry_price']:
+                            st.write(f"Entry Point: ${stock['entry_price']:.2f}")
+                        if stock['exit_price']:
+                            st.write(f"Exit Point: ${stock['exit_price']:.2f}")
+                        if stock['last_signal_type']:
+                            signal_color = "green" if stock['last_signal_type'] == 'BUY' else "red"
+                            st.markdown(f"Signal: <span style='color:{signal_color}'>{stock['last_signal_type']}</span>", unsafe_allow_html=True)
 
-                # Format prices if they exist
-                if 'Entry Price' in display_df.columns:
-                    display_df['Entry Price'] = display_df['Entry Price'].apply(
-                        lambda x: f"${float(x):.2f}" if pd.notnull(x) else ""
-                    )
-                if 'Exit Price' in display_df.columns:
-                    display_df['Exit Price'] = display_df['Exit Price'].apply(
-                        lambda x: f"${float(x):.2f}" if pd.notnull(x) else ""
-                    )
 
-                # Format dates if they exist
-                if 'Added Date' in display_df.columns:
-                    display_df['Added Date'] = pd.to_datetime(
-                        display_df['Added Date']
-                    ).dt.strftime('%Y-%m-%d %H:%M')
+                    with col3:
+                        st.write("**Agent Decisions Comparison:**")
+                        # Create a DataFrame for agent decisions
+                        decisions_df = pd.DataFrame(columns=['Agent', 'Previous Decision', 'Current Decision'])
 
-                # Apply color to signals if they exist
-                def color_signal(val):
-                    if pd.isna(val):
-                        return ''
-                    color = 'green' if val == 'BUY' else 'red' if val == 'SELL' else 'black'
-                    return f'color: {color}'
+                        # Get the two most recent decisions for each agent
+                        agent_decisions = db.get_all_agent_decisions(stock['symbol'])
+                        for agent_name in set(d['agent_name'] for d in agent_decisions):
+                            agent_specific_decisions = [d for d in agent_decisions if d['agent_name'] == agent_name]
+                            agent_specific_decisions.sort(key=lambda x: x['created_at'], reverse=True)
 
-                # Create the style object
-                style = display_df.style
-                if 'Signal' in display_df.columns:
-                    style = style.applymap(color_signal, subset=['Signal'])
+                            current_decision = agent_specific_decisions[0] if agent_specific_decisions else None
+                            previous_decision = agent_specific_decisions[1] if len(agent_specific_decisions) > 1 else None
 
-                # Display the styled DataFrame
-                st.dataframe(style, hide_index=True)
-        else:
-            st.info("Your watchlist is empty. Add symbols above.")
-    display_watchlist()
+                            # Format the decision text
+                            current_text = f"{extract_trading_action(current_decision['decision'])} ({current_decision['confidence']:.2f})" if current_decision else "N/A"
+                            previous_text = f"{extract_trading_action(previous_decision['decision'])} ({previous_decision['confidence']:.2f})" if previous_decision else "N/A"
+
+                            # Add to DataFrame
+                            decisions_df.loc[len(decisions_df)] = [
+                                agent_name.replace('strategy_', '').replace('resistance_', '🎯 ').upper(),
+                                previous_text,
+                                current_text
+                            ]
+
+                        # Display the decisions comparison table
+                        st.dataframe(decisions_df, hide_index=True)
+
+                        # Display entry/exit points for supervisor's final decision
+                        supervisor_decisions = [d for d in agent_decisions if d['agent_name'] == 'supervisor']
+                        if supervisor_decisions:
+                            current = supervisor_decisions[0]
+                            action = extract_trading_action(current['decision'])
+
+                            st.write("---")
+                            st.write("**📊 Final Trading Decision:**")
+                            st.write(f"Decision: {action}")
+                            st.write(f"Analysis: {current['decision']}")
+                            st.write(f"Confidence: {current['confidence']:.2f}")
+                            st.write(f"As of: {current['created_at'].strftime('%Y-%m-%d %H:%M')}")
+
+                            if action == 'BUY':
+                                entry, exit = calculate_trade_points(stock_data)
+                                st.write(f"Recommended Entry: ${entry}")
+                                st.write(f"Recommended Exit: ${exit}")
+                        else:
+                            st.write("No supervisor decision available yet. Click 'Update All Trading Recommendations' to analyze.")
+
+                    if st.button("Remove", key=f"remove_{stock['symbol']}"):
+                        db.remove_from_watchlist(stock['symbol'])
+                        st.experimental_rerun()
+
+                    st.write("---")
+                else:
+                    st.error(f"Insufficient data for {stock['symbol']}")
+            except Exception as e:
+                st.error(f"Error fetching data for {stock['symbol']}: {str(e)}")
+    else:
+        st.info("Your watchlist is empty. Add symbols above.")
 
 
 with tab3:
@@ -664,7 +748,7 @@ with tab3:
             st.markdown("""
             To implement these recommendations:
             1. Review the suggested strategy combinations
-            2. Set up your watchlistwith suitable stocks
+            2. Set up your watchlist with suitable stocks
             3. Configure alerts for entry/exit points
             4. Start with small position sizes to test the strategies
             5. Monitor andadjust based on performance
