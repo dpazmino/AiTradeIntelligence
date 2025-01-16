@@ -443,12 +443,12 @@ with tab2:
                         st.markdown(f"Change: <span style='color:{color}'>${price_change:.2f} ({price_change_pct:.1f}%)</span>", unsafe_allow_html=True)
                         st.write(f"Volume: {volume:,.0f}")
 
-                        # Add entry/exit points display
-                        if stock['entry_price']:
-                            st.write(f"Entry Point: ${stock['entry_price']:.2f}")
-                        if stock['exit_price']:
-                            st.write(f"Exit Point: ${stock['exit_price']:.2f}")
-                        if stock['last_signal_type']:
+                        # Add entry/exit points display with null checks
+                        if stock.get('entry_price') is not None:
+                            st.write(f"Entry Point: ${float(stock['entry_price']):.2f}")
+                        if stock.get('exit_price') is not None:
+                            st.write(f"Exit Point: ${float(stock['exit_price']):.2f}")
+                        if stock.get('last_signal_type'):
                             signal_color = "green" if stock['last_signal_type'] == 'BUY' else "red"
                             st.markdown(f"Signal: <span style='color:{signal_color}'>{stock['last_signal_type']}</span>", unsafe_allow_html=True)
 
@@ -748,7 +748,7 @@ with tab3:
             st.markdown("""
             To implement these recommendations:
             1. Review the suggested strategy combinations
-            2. Set up your watchlist with suitable stocks
+            2. Set up your watchlistwith suitable stocks
             3. Configure alerts for entry/exit points
             4. Start with small position sizes to test the strategies
             5. Monitor andadjust based on performance
