@@ -171,7 +171,7 @@ def analyze_watchlist_stock(symbol, data):
         trend_analysis[timeframe] = agent.analyze_trend(data)
         # Save trend analysis
         db.save_trading_decision(symbol, trend_analysis[timeframe]['analysis'], 
-                               0.8, f"trend_{timeframe}")
+                                0.8, f"trend_{timeframe}")
 
     # Show sentiment analysis progress
     progress_placeholder.write("📰 Sentiment Analysis:")
@@ -181,7 +181,7 @@ def analyze_watchlist_stock(symbol, data):
         sentiment_analysis[timeframe] = agent.analyze_sentiment(symbol)
         # Save sentiment analysis
         db.save_trading_decision(symbol, sentiment_analysis[timeframe]['analysis'], 
-                               0.7, f"sentiment_{timeframe}")
+                                0.7, f"sentiment_{timeframe}")
 
     # Show supervisor decision making
     progress_placeholder.write("🎯 Supervisor Agent making final decision...")
@@ -357,13 +357,20 @@ with tab2:
                         st.write(f"🔄 Processing {stock['symbol']}...")
 
                         # Get previous decisions before updating
-                        previous_decisions = db.get_all_agent_decisions(stock['symbol'])
+                        previous_decisions = db.get_latest_trading_decisions(stock['symbol'], 2)
 
                         stock_data = market_data.get_stock_data(stock['symbol'], period='5d')
                         if not stock_data.empty and len(stock_data) >= 2:
                             stock_data = market_data.calculate_technical_indicators(stock_data)
                             decision_text, confidence = analyze_watchlist_stock(stock['symbol'], stock_data)
-                            db.save_trading_decision(stock['symbol'], decision_text, confidence)
+
+                            # Save new decision with timestamp
+                            db.save_trading_decision(
+                                stock['symbol'], 
+                                decision_text, 
+                                confidence,
+                                'supervisor'
+                            )
                             st.write(f"✅ Analysis completed for {stock['symbol']}")
                         else:
                             st.error(f"Insufficient data for {stock['symbol']}")
@@ -442,49 +449,52 @@ with tab2:
                     with col3:
                         st.write("**Agent Decisions Comparison:**")
                         # Create a DataFrame for agent decisions
-                        decisions_df = pd.DataFrame(columns=['Agent', 'Previous Decision', 'Current Decision'])
+                        decisions_df = pd.DataFrame(columns=['Agent', 'Previous Decision', 'Current Decision', 'Changed'])
 
                         # Get the two most recent decisions for each agent
-                        for agent_name in set(d['agent_name'] for d in agent_decisions):
-                            agent_specific_decisions = [d for d in agent_decisions if d['agent_name'] == agent_name]
-                            agent_specific_decisions.sort(key=lambda x: x['created_at'], reverse=True)
+                        recent_decisions = db.get_latest_trading_decisions(stock['symbol'], 2)
 
-                            current_decision = agent_specific_decisions[0] if agent_specific_decisions else None
-                            previous_decision = agent_specific_decisions[1] if len(agent_specific_decisions) > 1 else None
+                        if len(recent_decisions) > 0:
+                            current_decision = recent_decisions[0]
+                            previous_decision = recent_decisions[1] if len(recent_decisions) > 1 else None
 
                             # Format the decision text
-                            current_text = f"{extract_trading_action(current_decision['decision'])} ({current_decision['confidence']:.2f})" if current_decision else "N/A"
+                            current_text = f"{extract_trading_action(current_decision['decision'])} ({current_decision['confidence']:.2f})"
                             previous_text = f"{extract_trading_action(previous_decision['decision'])} ({previous_decision['confidence']:.2f})" if previous_decision else "N/A"
+
+                            # Check if decision changed
+                            changed = "↔️" if not previous_decision else "🔄" if extract_trading_action(current_decision['decision']) != extract_trading_action(previous_decision['decision']) else "="
 
                             # Add to DataFrame
                             decisions_df.loc[len(decisions_df)] = [
-                                agent_name.replace('strategy_', '').replace('resistance_', '🎯 ').upper(),
+                                'Supervisor',
                                 previous_text,
-                                current_text
+                                current_text,
+                                changed
                             ]
 
-                        # Display the decisions comparison table
+                        # Display the decisions comparison table with changed indicator
                         st.dataframe(decisions_df, hide_index=True)
 
-                        # Display entry/exit points for supervisor's final decision
-                        supervisor_decisions = [d for d in agent_decisions if d['agent_name'] == 'supervisor']
-                        if supervisor_decisions:
-                            current = supervisor_decisions[0]
-                            action = extract_trading_action(current['decision'])
+                    # Display entry/exit points for supervisor's final decision
+                    supervisor_decisions = [d for d in agent_decisions if d['agent_name'] == 'supervisor']
+                    if supervisor_decisions:
+                        current = supervisor_decisions[0]
+                        action = extract_trading_action(current['decision'])
 
-                            st.write("---")
-                            st.write("**📊 Final Trading Decision:**")
-                            st.write(f"Decision: {action}")
-                            st.write(f"Analysis: {current['decision']}")
-                            st.write(f"Confidence: {current['confidence']:.2f}")
-                            st.write(f"As of: {current['created_at'].strftime('%Y-%m-%d %H:%M')}")
+                        st.write("---")
+                        st.write("**📊 Final Trading Decision:**")
+                        st.write(f"Decision: {action}")
+                        st.write(f"Analysis: {current['decision']}")
+                        st.write(f"Confidence: {current['confidence']:.2f}")
+                        st.write(f"As of: {current['created_at'].strftime('%Y-%m-%d %H:%M')}")
 
-                            if action == 'BUY':
-                                entry, exit = calculate_trade_points(stock_data)
-                                st.write(f"Recommended Entry: ${entry}")
-                                st.write(f"Recommended Exit: ${exit}")
-                        else:
-                            st.write("No supervisor decision available yet. Click 'Update All Trading Recommendations' to analyze.")
+                        if action == 'BUY':
+                            entry, exit = calculate_trade_points(stock_data)
+                            st.write(f"Recommended Entry: ${entry}")
+                            st.write(f"Recommended Exit: ${exit}")
+                    else:
+                        st.write("No supervisor decision available yet. Click 'Update All Trading Recommendations' to analyze.")
 
                     if st.button("Remove", key=f"remove_{stock['symbol']}"):
                         db.remove_from_watchlist(stock['symbol'])
@@ -770,7 +780,7 @@ with tab4:
 
                 if st.button(f"Check Answer #{i+1}", key=f"check_{selected_lesson}_{i}"):
                     selectedindex = quiz['options'].index(answer)
-                    if education.check_quiz_answer(selected_lesson, i, selected_index):
+                    if education.check_quiz_answer(selected_lesson, i, selectedindex):
                         st.success("Correct! 🎉")
                         # Check if user should earn an achievement
                         education.unlock_achievement('quiz_ace')
