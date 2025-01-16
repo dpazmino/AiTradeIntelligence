@@ -161,7 +161,10 @@ def analyze_watchlist_stock(symbol, data):
         signals[name] = agent.analyze(data)
         # Save each agent's decision
         action = 'BUY' if signals[name].get('buy', False) else 'SELL' if signals[name].get('sell', False) else 'HOLD'
-        db.save_trading_decision(symbol, action, signals[name].get('confidence', 0.0), f"strategy_{name.lower()}")
+        confidence = signals[name].get('confidence', 0.0)
+        analysis = signals[name].get('analysis', '')
+        decision_text = f"{action} - {analysis[:100]}..." if analysis else action
+        db.save_trading_decision(symbol, decision_text, confidence, f"strategy_{name.lower()}")
 
     # Show market trend analysis progress
     progress_placeholder.write("📈 Market Trend Analysis:")
@@ -190,12 +193,12 @@ def analyze_watchlist_stock(symbol, data):
     # Save supervisor decision with explicit decision text
     supervisor_action = extract_trading_action(decision['decision'])
     supervisor_decision = f"{supervisor_action} - {decision['decision'][:100]}..."  # Include first 100 chars of analysis
-    db.save_trading_decision(symbol, supervisor_decision, 0.9, 'supervisor')
+    db.save_trading_decision(symbol, supervisor_decision, decision.get('confidence', 0.9), 'supervisor')
 
     # Clear the progress display
     progress_placeholder.empty()
 
-    return supervisor_decision, 0.9
+    return supervisor_decision, decision.get('confidence', 0.9)
 
 
 # Streamlit UI
@@ -451,11 +454,24 @@ with tab2:
                         # Create a DataFrame for agent decisions
                         decisions_df = pd.DataFrame(columns=['Agent', 'Previous Decision', 'Current Decision', 'Changed'])
 
-                        # Get all agent decisions
-                        agent_decisions = db.get_all_agent_decisions(stock['symbol'])
+                        # Define order of strategies
+                        strategy_order = {
+                            'supervisor': 0,  # Supervisor first
+                            'strategy_macd': 1,
+                            'strategy_fibonacci': 2,
+                            'strategy_bollinger': 3,
+                            'strategy_fractal': 4,
+                            'strategy_resistance': 5,
+                            'trend_30d': 6,
+                            'trend_15d': 7,
+                            'trend_3d': 8,
+                            'sentiment_30d': 9,
+                            'sentiment_15d': 10,
+                            'sentiment_3d': 11
+                        }
 
-                        # Group decisions by agent
-                        for agent_name in set(d['agent_name'] for d in agent_decisions):
+                        # Process each agent's decisions
+                        for agent_name in strategy_order.keys():
                             # Get the two most recent decisions for this agent
                             agent_recent_decisions = db.get_latest_trading_decisions(stock['symbol'], 2)
                             agent_recent_decisions = [d for d in agent_recent_decisions if d['agent_name'] == agent_name]
@@ -472,9 +488,16 @@ with tab2:
                                 changed = "↔️" if not previous_decision else "🔄" if extract_trading_action(current_decision['decision']) != extract_trading_action(previous_decision['decision']) else "="
 
                                 # Format agent name for display
-                                display_name = agent_name.replace('strategy_', '').replace('resistance_', '🎯 ').title()
-                                if agent_name == 'supervisor':
+                                if agent_name.startswith('strategy_'):
+                                    display_name = f"📊 {agent_name.replace('strategy_', '').title()}"
+                                elif agent_name.startswith('trend_'):
+                                    display_name = f"📈 Trend ({agent_name.replace('trend_', '')})"
+                                elif agent_name.startswith('sentiment_'):
+                                    display_name = f"📰 Sentiment ({agent_name.replace('sentiment_', '')})"
+                                elif agent_name == 'supervisor':
                                     display_name = '👨‍💼 Supervisor'
+                                else:
+                                    display_name = agent_name.title()
 
                                 # Add to DataFrame
                                 decisions_df.loc[len(decisions_df)] = [
@@ -484,8 +507,11 @@ with tab2:
                                     changed
                                 ]
 
-                        # Sort DataFrame to show supervisor first, then other agents
-                        decisions_df['sort_order'] = decisions_df['Agent'].apply(lambda x: 0 if 'Supervisor' in x else 1)
+                        # Sort DataFrame based on strategy order
+                        decisions_df['sort_order'] = decisions_df['Agent'].apply(
+                            lambda x: next((order for name, order in strategy_order.items() 
+                                          if name in x.lower()), len(strategy_order))
+                        )
                         decisions_df = decisions_df.sort_values('sort_order').drop('sort_order', axis=1)
 
                         # Display the decisions comparison table with changed indicator
