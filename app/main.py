@@ -418,98 +418,40 @@ with tab2:
     watchlist = db.get_watchlist()
     if watchlist:
         st.write("Your Watchlist:")
-        for stock in watchlist:
-            try:
-                # Get current stock data (using 5d to ensure we have enough data)
-                stock_data = market_data.get_stock_data(stock['symbol'], period='5d')
-                if not stock_data.empty and len(stock_data) >= 2:
-                    today_price = stock_data['Close'].iloc[-1]
-                    yesterday_price = stock_data['Close'].iloc[-2]
-                    price_change = today_price - yesterday_price
-                    price_change_pct = (price_change / yesterday_price) * 100
-                    volume = stock_data['Volume'].iloc[-1]
+        # Create a DataFrame for better table display
+        watchlist_df = pd.DataFrame(watchlist)
+        if not watchlist_df.empty:
+            # Format the DataFrame for display
+            display_df = watchlist_df[['symbol', 'notes', 'entry_price', 'exit_price', 'last_signal_type', 'added_date']]
+            display_df = display_df.rename(columns={
+                'symbol': 'Symbol',
+                'notes': 'Notes',
+                'entry_price': 'Entry Price',
+                'exit_price': 'Exit Price',
+                'last_signal_type': 'Signal',
+                'added_date': 'Added Date'
+            })
 
-                    # Display stock info in columns
-                    col1, col2, col3 = st.columns([2, 2, 3])
+            # Format prices to show as currency
+            display_df['Entry Price'] = display_df['Entry Price'].apply(lambda x: f"${float(x):.2f}" if pd.notnull(x) else "")
+            display_df['Exit Price'] = display_df['Exit Price'].apply(lambda x: f"${float(x):.2f}" if pd.notnull(x) else "")
 
-                    with col1:
-                        st.write(f"**{stock['symbol']}**")
-                        if stock['notes']:
-                            st.write(stock['notes'])
+            # Format dates
+            display_df['Added Date'] = pd.to_datetime(display_df['Added Date']).dt.strftime('%Y-%m-%d %H:%M')
 
-                    with col2:
-                        st.write(f"Price: ${today_price:.2f}")
-                        color = "green" if price_change >= 0 else "red"
-                        st.markdown(f"Change: <span style='color:{color}'>${price_change:.2f} ({price_change_pct:.1f}%)</span>", unsafe_allow_html=True)
-                        st.write(f"Volume: {volume:,.0f}")
+            # Apply color to signals
+            def color_signal(val):
+                if pd.isna(val):
+                    return ''
+                color = 'green' if val == 'BUY' else 'red' if val == 'SELL' else 'black'
+                return f'color: {color}'
 
-                        # Add entry/exit points display with null checks
-                        if stock.get('entry_price') is not None:
-                            st.write(f"Entry Point: ${float(stock['entry_price']):.2f}")
-                        if stock.get('exit_price') is not None:
-                            st.write(f"Exit Point: ${float(stock['exit_price']):.2f}")
-                        if stock.get('last_signal_type'):
-                            signal_color = "green" if stock['last_signal_type'] == 'BUY' else "red"
-                            st.markdown(f"Signal: <span style='color:{signal_color}'>{stock['last_signal_type']}</span>", unsafe_allow_html=True)
+            # Display the styled DataFrame
+            st.dataframe(
+                display_df.style.applymap(color_signal, subset=['Signal']),
+                hide_index=True
+            )
 
-
-                    with col3:
-                        st.write("**Agent Decisions Comparison:**")
-                        # Create a DataFrame for agent decisions
-                        decisions_df = pd.DataFrame(columns=['Agent', 'Previous Decision', 'Current Decision'])
-
-                        # Get the two most recent decisions for each agent
-                        agent_decisions = db.get_all_agent_decisions(stock['symbol'])
-                        for agent_name in set(d['agent_name'] for d in agent_decisions):
-                            agent_specific_decisions = [d for d in agent_decisions if d['agent_name'] == agent_name]
-                            agent_specific_decisions.sort(key=lambda x: x['created_at'], reverse=True)
-
-                            current_decision = agent_specific_decisions[0] if agent_specific_decisions else None
-                            previous_decision = agent_specific_decisions[1] if len(agent_specific_decisions) > 1 else None
-
-                            # Format the decision text
-                            current_text = f"{extract_trading_action(current_decision['decision'])} ({current_decision['confidence']:.2f})" if current_decision else "N/A"
-                            previous_text = f"{extract_trading_action(previous_decision['decision'])} ({previous_decision['confidence']:.2f})" if previous_decision else "N/A"
-
-                            # Add to DataFrame
-                            decisions_df.loc[len(decisions_df)] = [
-                                agent_name.replace('strategy_', '').replace('resistance_', '🎯 ').upper(),
-                                previous_text,
-                                current_text
-                            ]
-
-                        # Display the decisions comparison table
-                        st.dataframe(decisions_df, hide_index=True)
-
-                        # Display entry/exit points for supervisor's final decision
-                        supervisor_decisions = [d for d in agent_decisions if d['agent_name'] == 'supervisor']
-                        if supervisor_decisions:
-                            current = supervisor_decisions[0]
-                            action = extract_trading_action(current['decision'])
-
-                            st.write("---")
-                            st.write("**📊 Final Trading Decision:**")
-                            st.write(f"Decision: {action}")
-                            st.write(f"Analysis: {current['decision']}")
-                            st.write(f"Confidence: {current['confidence']:.2f}")
-                            st.write(f"As of: {current['created_at'].strftime('%Y-%m-%d %H:%M')}")
-
-                            if action == 'BUY':
-                                entry, exit = calculate_trade_points(stock_data)
-                                st.write(f"Recommended Entry: ${entry}")
-                                st.write(f"Recommended Exit: ${exit}")
-                        else:
-                            st.write("No supervisor decision available yet. Click 'Update All Trading Recommendations' to analyze.")
-
-                    if st.button("Remove", key=f"remove_{stock['symbol']}"):
-                        db.remove_from_watchlist(stock['symbol'])
-                        st.experimental_rerun()
-
-                    st.write("---")
-                else:
-                    st.error(f"Insufficient data for {stock['symbol']}")
-            except Exception as e:
-                st.error(f"Error fetching data for {stock['symbol']}: {str(e)}")
     else:
         st.info("Your watchlist is empty. Add symbols above.")
 
