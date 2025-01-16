@@ -62,12 +62,17 @@ class Database:
                     )
                 """)
 
+                # Update watchlist_stocks table to include entry and exit prices
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS watchlist_stocks (
                         id SERIAL PRIMARY KEY,
                         symbol VARCHAR(10) NOT NULL UNIQUE,
                         notes TEXT,
-                        added_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        added_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        entry_price DECIMAL(10, 2),
+                        exit_price DECIMAL(10, 2),
+                        last_signal_type VARCHAR(10),
+                        signal_timestamp TIMESTAMP
                     )
                 """)
 
@@ -156,15 +161,29 @@ class Database:
                 """, (hours,))
             self.conn.commit()
 
-    def add_to_watchlist(self, symbol, notes=None):
+    def add_to_watchlist(self, symbol, notes=None, entry_price=None, exit_price=None):
+        """Add or update a stock in the watchlist with optional entry/exit prices"""
         with self.conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO watchlist_stocks (symbol, notes)
-                VALUES (%s, %s)
+                INSERT INTO watchlist_stocks (symbol, notes, entry_price, exit_price)
+                VALUES (%s, %s, %s, %s)
                 ON CONFLICT (symbol) DO UPDATE SET
                     notes = EXCLUDED.notes,
+                    entry_price = EXCLUDED.entry_price,
+                    exit_price = EXCLUDED.exit_price,
                     added_date = CURRENT_TIMESTAMP
-                """, (symbol.upper(), notes))
+                """, (symbol.upper(), notes, entry_price, exit_price))
+            self.conn.commit()
+
+    def update_watchlist_signal(self, symbol, signal_type):
+        """Update the last signal type and timestamp for a watchlist stock"""
+        with self.conn.cursor() as cur:
+            cur.execute("""
+                UPDATE watchlist_stocks 
+                SET last_signal_type = %s,
+                    signal_timestamp = CURRENT_TIMESTAMP
+                WHERE symbol = %s
+                """, (signal_type, symbol.upper()))
             self.conn.commit()
 
     def remove_from_watchlist(self, symbol):
@@ -182,7 +201,6 @@ class Database:
                 ORDER BY added_date DESC
                 """)
             return cur.fetchall()
-
     def save_trading_decision(self, symbol: str, decision: str, confidence: float, agent_name: str = 'supervisor'):
         """Save a new trading decision for a stock"""
         with self.conn.cursor() as cur:

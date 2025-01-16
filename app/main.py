@@ -151,6 +151,9 @@ def analyze_watchlist_stock(symbol, data):
     """Analyze a single watchlist stock using our AI agents"""
     signals = {}
 
+    # Calculate entry and exit points
+    entry_point, exit_point = calculate_trade_points(data)
+
     # Create a placeholder for progress
     progress_placeholder = st.empty()
 
@@ -163,6 +166,13 @@ def analyze_watchlist_stock(symbol, data):
         action = 'BUY' if signals[name].get('buy', False) else 'SELL' if signals[name].get('sell', False) else 'HOLD'
         db.save_trading_decision(symbol, action, signals[name].get('confidence', 0.0), f"strategy_{name.lower()}")
 
+        # Update watchlist with entry/exit points if it's a buy signal
+        if signals[name].get('buy', False):
+            db.add_to_watchlist(symbol, entry_price=entry_point, exit_price=exit_point)
+            db.update_watchlist_signal(symbol, 'BUY')
+        elif signals[name].get('sell', False):
+            db.update_watchlist_signal(symbol, 'SELL')
+
     # Show market trend analysis progress
     progress_placeholder.write("📈 Market Trend Analysis:")
     trend_analysis = {}
@@ -171,7 +181,7 @@ def analyze_watchlist_stock(symbol, data):
         trend_analysis[timeframe] = agent.analyze_trend(data)
         # Save trend analysis
         db.save_trading_decision(symbol, trend_analysis[timeframe]['analysis'], 
-                               0.8, f"trend_{timeframe}")
+                                   0.8, f"trend_{timeframe}")
 
     # Show sentiment analysis progress
     progress_placeholder.write("📰 Sentiment Analysis:")
@@ -181,7 +191,7 @@ def analyze_watchlist_stock(symbol, data):
         sentiment_analysis[timeframe] = agent.analyze_sentiment(symbol)
         # Save sentiment analysis
         db.save_trading_decision(symbol, sentiment_analysis[timeframe]['analysis'], 
-                               0.7, f"sentiment_{timeframe}")
+                                   0.7, f"sentiment_{timeframe}")
 
     # Show supervisor decision making
     progress_placeholder.write("🎯 Supervisor Agent making final decision...")
@@ -419,12 +429,6 @@ with tab2:
                     price_change_pct = (price_change / yesterday_price) * 100
                     volume = stock_data['Volume'].iloc[-1]
 
-                    # Calculate technical indicators
-                    stock_data = market_data.calculate_technical_indicators(stock_data)
-
-                    # Get all stored agent decisions
-                    agent_decisions = db.get_all_agent_decisions(stock['symbol'])
-
                     # Display stock info in columns
                     col1, col2, col3 = st.columns([2, 2, 3])
 
@@ -439,12 +443,23 @@ with tab2:
                         st.markdown(f"Change: <span style='color:{color}'>${price_change:.2f} ({price_change_pct:.1f}%)</span>", unsafe_allow_html=True)
                         st.write(f"Volume: {volume:,.0f}")
 
+                        # Add entry/exit points display
+                        if stock['entry_price']:
+                            st.write(f"Entry Point: ${stock['entry_price']:.2f}")
+                        if stock['exit_price']:
+                            st.write(f"Exit Point: ${stock['exit_price']:.2f}")
+                        if stock['last_signal_type']:
+                            signal_color = "green" if stock['last_signal_type'] == 'BUY' else "red"
+                            st.markdown(f"Signal: <span style='color:{signal_color}'>{stock['last_signal_type']}</span>", unsafe_allow_html=True)
+
+
                     with col3:
                         st.write("**Agent Decisions Comparison:**")
                         # Create a DataFrame for agent decisions
                         decisions_df = pd.DataFrame(columns=['Agent', 'Previous Decision', 'Current Decision'])
 
                         # Get the two most recent decisions for each agent
+                        agent_decisions = db.get_all_agent_decisions(stock['symbol'])
                         for agent_name in set(d['agent_name'] for d in agent_decisions):
                             agent_specific_decisions = [d for d in agent_decisions if d['agent_name'] == agent_name]
                             agent_specific_decisions.sort(key=lambda x: x['created_at'], reverse=True)
@@ -736,7 +751,7 @@ with tab3:
             2. Set up your watchlist with suitable stocks
             3. Configure alerts for entry/exit points
             4. Start with small position sizes to test the strategies
-            5. Monitor and adjust based on performance
+            5. Monitor andadjust based on performance
             """)
 
 
@@ -770,7 +785,7 @@ with tab4:
 
                 if st.button(f"Check Answer #{i+1}", key=f"check_{selected_lesson}_{i}"):
                     selectedindex = quiz['options'].index(answer)
-                    if education.check_quiz_answer(selected_lesson, i, selected_index):
+                    if education.check_quiz_answer(selected_lesson, i, selectedindex):
                         st.success("Correct! 🎉")
                         # Check if user should earn an achievement
                         education.unlock_achievement('quiz_ace')
